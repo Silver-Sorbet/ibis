@@ -1,12 +1,13 @@
 use crate::{
-    common::CreateArticleForm,
+    common::article::CreateArticleParams,
     frontend::{
         api::CLIENT,
         app::{is_admin, site, DefaultResource},
-        components::editor::EditorView,
+        components::article_editor::EditorView,
     },
 };
 use leptos::{html::Textarea, prelude::*};
+use leptos_meta::Title;
 use leptos_router::components::Redirect;
 use leptos_use::{use_textarea_autosize, UseTextareaAutosizeReturn};
 
@@ -32,14 +33,14 @@ pub fn CreateArticle() -> impl IntoView {
         let summary = summary.clone();
         let instance = instance.clone();
         async move {
-            let form = CreateArticleForm {
+            let params = CreateArticleParams {
                 title,
                 text,
                 summary,
                 instance,
             };
             set_wait_for_response.update(|w| *w = true);
-            let res = CLIENT.create_article(&form).await;
+            let res = CLIENT.create_article(&params).await;
             set_wait_for_response.update(|w| *w = false);
             match res {
                 Ok(_res) => {
@@ -64,6 +65,7 @@ pub fn CreateArticle() -> impl IntoView {
     );
 
     view! {
+        <Title text="Create new Article" />
         <h1 class="my-4 font-serif text-4xl font-bold">Create new Article</h1>
         <Suspense>
             <Show when=move || show_approval_message.get()>

@@ -1,13 +1,14 @@
 use crate::{
-    common::GetUserForm,
+    common::user::GetUserParams,
     frontend::{
         api::CLIENT,
         components::edit_list::EditList,
-        markdown::render_markdown,
+        markdown::render_article_markdown,
         user_title,
     },
 };
 use leptos::prelude::*;
+use leptos_meta::Title;
 use leptos_router::hooks::use_params_map;
 
 #[component]
@@ -22,7 +23,7 @@ pub fn UserProfile() -> impl IntoView {
             name = title_.to_string();
             domain = Some(domain_.to_string());
         }
-        let params = GetUserForm { name, domain };
+        let params = GetUserParams { name, domain };
         CLIENT.get_user(params).await.unwrap()
     });
 
@@ -52,13 +53,14 @@ pub fn UserProfile() -> impl IntoView {
                 let edits = edits.await;
                 let person = user_profile.await;
                 view! {
+                    <Title text=user_title(&person) />
                     <h1 class="flex-auto my-6 font-serif text-4xl font-bold grow">
                         {user_title(&person)}
                     </h1>
 
                     <div
                         class="mb-2 max-w-full prose prose-slate"
-                        inner_html=render_markdown(&person.bio.unwrap_or_default())
+                        inner_html=render_article_markdown(&person.bio.unwrap_or_default())
                     ></div>
 
                     <h2 class="font-serif text-xl font-bold">Edits</h2>

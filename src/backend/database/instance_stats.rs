@@ -1,5 +1,5 @@
 use super::schema::instance_stats;
-use crate::backend::{IbisData, MyResult};
+use crate::backend::{IbisContext, MyResult};
 use diesel::{query_dsl::methods::FindDsl, Queryable, RunQueryDsl, Selectable};
 use std::ops::DerefMut;
 
@@ -11,11 +11,12 @@ pub struct InstanceStats {
     pub users_active_month: i32,
     pub users_active_half_year: i32,
     pub articles: i32,
+    pub comments: i32,
 }
 
 impl InstanceStats {
-    pub fn read(data: &IbisData) -> MyResult<Self> {
-        let mut conn = data.db_pool.get()?;
+    pub fn read(context: &IbisContext) -> MyResult<Self> {
+        let mut conn = context.db_pool.get()?;
         Ok(instance_stats::table.find(1).get_result(conn.deref_mut())?)
     }
 }

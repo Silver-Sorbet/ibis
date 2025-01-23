@@ -1,5 +1,8 @@
 use crate::{
-    common::{ArticleView, EditView, GetArticleForm, MAIN_PAGE_NAME},
+    common::{
+        article::{DbArticleView, EditView, GetArticleParams},
+        MAIN_PAGE_NAME,
+    },
     frontend::api::CLIENT,
 };
 use leptos::prelude::*;
@@ -15,7 +18,7 @@ pub(crate) mod search;
 pub(crate) mod user_edit_profile;
 pub(crate) mod user_profile;
 
-fn article_resource() -> Resource<ArticleView> {
+fn article_resource() -> Resource<DbArticleView> {
     let params = use_params_map();
     let title = move || params.get().get("title").clone();
     Resource::new(title, move |title| async move {
@@ -26,7 +29,7 @@ fn article_resource() -> Resource<ArticleView> {
             domain = Some(domain_.to_string());
         }
         CLIENT
-            .get_article(GetArticleForm {
+            .get_article(GetArticleParams {
                 title: Some(title),
                 domain,
                 id: None,
@@ -35,7 +38,7 @@ fn article_resource() -> Resource<ArticleView> {
             .unwrap()
     })
 }
-fn article_edits_resource(article: Resource<ArticleView>) -> Resource<Vec<EditView>> {
+fn article_edits_resource(article: Resource<DbArticleView>) -> Resource<Vec<EditView>> {
     Resource::new(
         move || article.get(),
         move |_| async move {

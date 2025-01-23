@@ -1,11 +1,21 @@
-use super::objects::instance_collection::{DbInstanceCollection, InstanceCollection};
+use super::{
+    activities::comment::{
+        create_or_update_comment::CreateOrUpdateComment,
+        delete_comment::DeleteComment,
+        undo_delete_comment::UndoDeleteComment,
+    },
+    objects::{
+        comment::ApubComment,
+        instance_collection::{DbInstanceCollection, InstanceCollection},
+    },
+};
 use crate::{
     backend::{
-        database::IbisData,
-        error::{Error, MyResult},
+        database::IbisContext,
         federation::{
             activities::{
                 accept::Accept,
+                announce::AnnounceActivity,
                 create_article::CreateArticle,
                 follow::Follow,
                 reject::RejectEdit,
@@ -20,8 +30,15 @@ use crate::{
                 user::ApubUser,
             },
         },
+        utils::error::{Error, MyResult},
     },
-    common::{DbArticle, DbInstance, DbPerson},
+    common::{
+        article::DbArticle,
+        comment::DbComment,
+        instance::DbInstance,
+        newtypes::CommentId,
+        user::DbPerson,
+    },
 };
 use activitypub_federation::{
     axum::{
@@ -51,61 +68,72 @@ pub fn federation_routes() -> Router<()> {
         .route("/linked_instances", get(http_get_linked_instances))
         .route("/article/:title", get(http_get_article))
         .route("/article/:title/edits", get(http_get_article_edits))
+        .route("/comment/:id", get(http_get_comment))
         .route("/inbox", post(http_post_inbox))
 }
 
 #[debug_handler]
 async fn http_get_instance(
-    data: Data<IbisData>,
+    context: Data<IbisContext>,
 ) -> MyResult<FederationJson<WithContext<ApubInstance>>> {
-    let local_instance = DbInstance::read_local_instance(&data)?;
-    let json_instance = local_instance.into_json(&data).await?;
+    let local_instance = DbInstance::read_local(&context)?;
+    let json_instance = local_instance.into_json(&context).await?;
     Ok(FederationJson(WithContext::new_default(json_instance)))
 }
 
 #[debug_handler]
 async fn http_get_person(
     Path(name): Path<String>,
-    data: Data<IbisData>,
+    context: Data<IbisContext>,
 ) -> MyResult<FederationJson<WithContext<ApubUser>>> {
-    let person = DbPerson::read_local_from_name(&name, &data)?.person;
-    let json_person = person.into_json(&data).await?;
+    let person = DbPerson::read_local_from_name(&name, &context)?.person;
+    let json_person = person.into_json(&context).await?;
     Ok(FederationJson(WithContext::new_default(json_person)))
 }
 
 #[debug_handler]
 async fn http_get_all_articles(
-    data: Data<IbisData>,
+    context: Data<IbisContext>,
 ) -> MyResult<FederationJson<WithContext<ArticleCollection>>> {
-    let collection = DbArticleCollection::read_local(&(), &data).await?;
+    let collection = DbArticleCollection::read_local(&(), &context).await?;
     Ok(FederationJson(WithContext::new_default(collection)))
 }
 
 #[debug_handler]
 async fn http_get_linked_instances(
-    data: Data<IbisData>,
+    context: Data<IbisContext>,
 ) -> MyResult<FederationJson<WithContext<InstanceCollection>>> {
-    let collection = DbInstanceCollection::read_local(&(), &data).await?;
+    let collection = DbInstanceCollection::read_local(&(), &context).await?;
     Ok(FederationJson(WithContext::new_default(collection)))
 }
 
 #[debug_handler]
 async fn http_get_article(
     Path(title): Path<String>,
-    data: Data<IbisData>,
+    context: Data<IbisContext>,
 ) -> MyResult<FederationJson<WithContext<ApubArticle>>> {
-    let article = DbArticle::read_view_title(&title, None, &data)?;
-    let json = article.article.into_json(&data).await?;
+    let article = DbArticle::read_view_title(&title, None, &context)?;
+    let json = article.article.into_json(&context).await?;
     Ok(FederationJson(WithContext::new_default(json)))
 }
 
 #[debug_handler]
 async fn http_get_article_edits(
     Path(title): Path<String>,
-    data: Data<IbisData>,
+    context: Data<IbisContext>,
 ) -> MyResult<FederationJson<WithContext<ApubEditCollection>>> {
-    let article = DbArticle::read_view_title(&title, None, &data)?;
-    let json = DbEditCollection::read_local(&article.article, &data).await?;
+    let article = DbArticle::read_view_title(&title, None, &context)?;
+    let json = DbEditCollection::read_local(&article.article, &context).await?;
+    Ok(FederationJson(WithContext::new_default(json)))
+}
+
+#[debug_handler]
+async fn http_get_comment(
+    Path(id): Path<i32>,
+    context: Data<IbisContext>,
+) -> MyResult<FederationJson<WithContext<ApubComment>>> {
+    let comment = DbComment::read(CommentId(id), &context)?;
+    let json = comment.into_json(&context).await?;
     Ok(FederationJson(WithContext::new_default(json)))
 }
 
@@ -120,14 +148,25 @@ pub enum InboxActivities {
     UpdateLocalArticle(UpdateLocalArticle),
     UpdateRemoteArticle(UpdateRemoteArticle),
     RejectEdit(RejectEdit),
+    AnnounceActivity(AnnounceActivity),
+    AnnouncableActivities(AnnouncableActivities),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+#[enum_delegate::implement(ActivityHandler)]
+pub enum AnnouncableActivities {
+    CreateOrUpdateComment(CreateOrUpdateComment),
+    DeleteComment(DeleteComment),
+    UndoDeleteComment(UndoDeleteComment),
 }
 
 #[debug_handler]
 pub async fn http_post_inbox(
-    data: Data<IbisData>,
+    context: Data<IbisContext>,
     activity_data: ActivityData,
 ) -> impl IntoResponse {
-    receive_activity::<WithContext<InboxActivities>, UserOrInstance, IbisData>(activity_data, &data)
+    receive_activity::<WithContext<InboxActivities>, UserOrInstance, _>(activity_data, &context)
         .await
 }
 
@@ -147,12 +186,12 @@ pub enum PersonOrInstance {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum PersonOrInstanceType {
     Person,
-    Group,
+    Service,
 }
 
 #[async_trait::async_trait]
 impl Object for UserOrInstance {
-    type DataType = IbisData;
+    type DataType = IbisContext;
     type Kind = PersonOrInstance;
     type Error = Error;
 

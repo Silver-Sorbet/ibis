@@ -1,5 +1,5 @@
 use crate::{
-    common::{utils::extract_domain, EditView},
+    common::{article::EditView, utils::extract_domain},
     frontend::{article_link, render_date_time, user_link},
 };
 use leptos::{either::Either, prelude::*};
@@ -42,9 +42,16 @@ pub fn EditList(edits: Vec<EditView>, for_article: bool) -> impl IntoView {
                         view! {
                             <li class="m-2 card card-compact bg-base-100 card-bordered rounded-s">
                                 <div class="card-body">
-                                    <a class="w-full text-lg link link-primary" href=path>
-                                        {edit.edit.summary}
-                                    </a>
+                                    <div class="flex w-full">
+                                        <a class="text-lg grow link link-primary" href=path>
+                                            {edit.edit.summary}
+                                        </a>
+                                        <Show when=move || edit.edit.pending>
+                                            <span class="p-1 w-min rounded border-2 border-rose-300">
+                                                Pending
+                                            </span>
+                                        </Show>
+                                    </div>
                                     <p>{second_line}</p>
                                 </div>
                             </li>

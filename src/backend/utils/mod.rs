@@ -1,6 +1,9 @@
 use crate::{
-    backend::{database::IbisData, error::MyResult},
-    common::{utils, DbEdit, EditVersion},
+    backend::{database::IbisContext, utils::error::MyResult},
+    common::{
+        article::{DbEdit, EditVersion},
+        utils,
+    },
 };
 use activitypub_federation::{
     config::Data,
@@ -12,8 +15,12 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use std::sync::LazyLock;
 use url::{ParseError, Url};
 
-pub fn generate_activity_id(data: &Data<IbisData>) -> Result<Url, ParseError> {
-    let domain = &data.config.federation.domain;
+pub mod error;
+pub(super) mod scheduled_tasks;
+pub(super) mod validate;
+
+pub(super) fn generate_activity_id(context: &Data<IbisContext>) -> Result<Url, ParseError> {
+    let domain = &context.config.federation.domain;
     let id: String = thread_rng()
         .sample_iter(&Alphanumeric)
         .take(7)
@@ -32,7 +39,10 @@ pub fn generate_activity_id(data: &Data<IbisData>) -> Result<Url, ParseError> {
 ///
 /// TODO: testing
 /// TODO: should cache all these generated versions
-pub fn generate_article_version(edits: &Vec<DbEdit>, version: &EditVersion) -> MyResult<String> {
+pub(super) fn generate_article_version(
+    edits: &Vec<DbEdit>,
+    version: &EditVersion,
+) -> MyResult<String> {
     let mut generated = String::new();
     if version == &EditVersion::default() {
         return Ok(generated);
@@ -47,12 +57,24 @@ pub fn generate_article_version(edits: &Vec<DbEdit>, version: &EditVersion) -> M
     Err(anyhow!("failed to generate article version").into())
 }
 
+/// Use a single static keypair during testing which is signficantly faster than
+/// generating dozens of keys from scratch.
+pub fn generate_keypair() -> MyResult<Keypair> {
+    if cfg!(debug_assertions) {
+        static KEYPAIR: LazyLock<Keypair> =
+            LazyLock::new(|| generate_actor_keypair().expect("generate keypair"));
+        Ok(KEYPAIR.clone())
+    } else {
+        Ok(generate_actor_keypair()?)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::common::{
+        article::DbEdit,
         newtypes::{ArticleId, EditId, PersonId},
-        DbEdit,
     };
     use activitypub_federation::fetch::object_id::ObjectId;
     use chrono::Utc;
@@ -71,6 +93,7 @@ mod test {
                 article_id: ArticleId(0),
                 previous_version_id: Default::default(),
                 published: Utc::now(),
+                pending: false,
             })
         };
         Ok([
@@ -103,17 +126,5 @@ mod test {
         let generated = generate_article_version(&edits, &EditVersion::default())?;
         assert_eq!("", generated);
         Ok(())
-    }
-}
-
-/// Use a single static keypair during testing which is signficantly faster than
-/// generating dozens of keys from scratch.
-pub fn generate_keypair() -> MyResult<Keypair> {
-    if cfg!(debug_assertions) {
-        static KEYPAIR: LazyLock<Keypair> =
-            LazyLock::new(|| generate_actor_keypair().expect("generate keypair"));
-        Ok(KEYPAIR.clone())
-    } else {
-        Ok(generate_actor_keypair()?)
     }
 }

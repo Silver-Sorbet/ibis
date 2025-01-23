@@ -1,28 +1,29 @@
 use crate::{
-    common::LoginUserForm,
+    common::user::LoginUserParams,
     frontend::{api::CLIENT, app::site, components::credentials::*},
 };
 use leptos::prelude::*;
+use leptos_meta::Title;
 use leptos_router::components::Redirect;
 
 #[component]
 pub fn Login() -> impl IntoView {
-    let (login_response, set_login_response) = signal(None::<()>);
+    let (login_response, set_login_response) = signal(false);
     let (login_error, set_login_error) = signal(None::<String>);
     let (wait_for_response, set_wait_for_response) = signal(false);
 
     let login_action = Action::new(move |(email, password): &(String, String)| {
         let username = email.to_string();
         let password = password.to_string();
-        let credentials = LoginUserForm { username, password };
+        let params = LoginUserParams { username, password };
         async move {
             set_wait_for_response.update(|w| *w = true);
-            let result = CLIENT.login(credentials).await;
+            let result = CLIENT.login(params).await;
             set_wait_for_response.update(|w| *w = false);
             match result {
                 Ok(_res) => {
                     site().refetch();
-                    set_login_response.update(|v| *v = Some(()));
+                    set_login_response.set(true);
                     set_login_error.update(|e| *e = None);
                 }
                 Err(err) => {
@@ -37,8 +38,9 @@ pub fn Login() -> impl IntoView {
     let disabled = Signal::derive(move || wait_for_response.get());
 
     view! {
+        <Title text="Login" />
         <Show
-            when=move || login_response.get().is_some()
+            when=move || login_response.get()
             fallback=move || {
                 view! {
                     <CredentialsForm

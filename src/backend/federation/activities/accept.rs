@@ -1,11 +1,13 @@
 use crate::{
     backend::{
-        database::IbisData,
-        error::MyResult,
+        database::IbisContext,
         federation::{activities::follow::Follow, send_activity},
-        utils::generate_activity_id,
+        utils::{
+            error::{Error, MyResult},
+            generate_activity_id,
+        },
     },
-    common::DbInstance,
+    common::instance::DbInstance,
 };
 use activitypub_federation::{
     config::Data,
@@ -30,10 +32,10 @@ impl Accept {
     pub async fn send(
         local_instance: DbInstance,
         object: Follow,
-        data: &Data<IbisData>,
+        context: &Data<IbisContext>,
     ) -> MyResult<()> {
-        let id = generate_activity_id(data)?;
-        let follower = object.actor.dereference(data).await?;
+        let id = generate_activity_id(context)?;
+        let follower = object.actor.dereference(context).await?;
         let accept = Accept {
             actor: local_instance.ap_id.clone(),
             object,
@@ -44,7 +46,7 @@ impl Accept {
             &local_instance,
             accept,
             vec![follower.shared_inbox_or_inbox()],
-            data,
+            context,
         )
         .await?;
         Ok(())
@@ -53,8 +55,8 @@ impl Accept {
 
 #[async_trait::async_trait]
 impl ActivityHandler for Accept {
-    type DataType = IbisData;
-    type Error = crate::backend::error::Error;
+    type DataType = IbisContext;
+    type Error = Error;
 
     fn id(&self) -> &Url {
         &self.id
@@ -64,15 +66,15 @@ impl ActivityHandler for Accept {
         self.actor.inner()
     }
 
-    async fn verify(&self, _data: &Data<Self::DataType>) -> Result<(), Self::Error> {
+    async fn verify(&self, _context: &Data<Self::DataType>) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    async fn receive(self, data: &Data<Self::DataType>) -> Result<(), Self::Error> {
+    async fn receive(self, context: &Data<Self::DataType>) -> Result<(), Self::Error> {
         // add to follows
-        let person = self.object.actor.dereference_local(data).await?;
-        let instance = self.actor.dereference(data).await?;
-        DbInstance::follow(&person, &instance, false, data)?;
+        let person = self.object.actor.dereference_local(context).await?;
+        let instance = self.actor.dereference(context).await?;
+        DbInstance::follow(&person, &instance, false, context)?;
         Ok(())
     }
 }

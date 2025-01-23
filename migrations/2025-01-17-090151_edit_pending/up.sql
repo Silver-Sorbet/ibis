@@ -1,0 +1,3 @@
+ALTER TABLE edit
+    ADD COLUMN pending bool NOT NULL DEFAULT FALSE;
+

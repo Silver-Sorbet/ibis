@@ -1,4 +1,9 @@
-use crate::backend::{config::IbisConfig, database::IbisData};
+use super::utils::error::MyResult;
+use crate::{
+    backend::{config::IbisConfig, database::IbisContext},
+    common::{instance::DbInstance, user::DbPerson},
+};
+use activities::announce::AnnounceActivity;
 use activitypub_federation::{
     activity_queue::queue_activity,
     config::{Data, UrlVerifier},
@@ -7,6 +12,7 @@ use activitypub_federation::{
     traits::{ActivityHandler, Actor},
 };
 use async_trait::async_trait;
+use routes::AnnouncableActivities;
 use serde::Serialize;
 use std::fmt::Debug;
 use url::Url;
@@ -19,14 +25,29 @@ pub async fn send_activity<Activity, ActorType: Actor>(
     actor: &ActorType,
     activity: Activity,
     recipients: Vec<Url>,
-    data: &Data<IbisData>,
+    context: &Data<IbisContext>,
 ) -> Result<(), <Activity as ActivityHandler>::Error>
 where
     Activity: ActivityHandler + Serialize + Debug + Send + Sync,
     <Activity as ActivityHandler>::Error: From<activitypub_federation::error::Error>,
 {
     let activity = WithContext::new_default(activity);
-    queue_activity(&activity, actor, recipients, data).await?;
+    queue_activity(&activity, actor, recipients, context).await?;
+    Ok(())
+}
+
+pub async fn send_activity_to_instance(
+    actor: &DbPerson,
+    activity: AnnouncableActivities,
+    instance: &DbInstance,
+    context: &Data<IbisContext>,
+) -> MyResult<()> {
+    if instance.local {
+        AnnounceActivity::send(activity, context).await?;
+    } else {
+        let inbox_url = instance.inbox_url.parse()?;
+        send_activity(actor, activity, vec![inbox_url], context).await?;
+    }
     Ok(())
 }
 

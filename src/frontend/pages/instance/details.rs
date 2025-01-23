@@ -1,13 +1,16 @@
 use crate::{
-    common::{utils::http_protocol_str, DbInstance, ListArticlesForm},
+    common::{article::ListArticlesParams, instance::DbInstance, utils::http_protocol_str},
     frontend::{
         api::CLIENT,
         article_path,
         article_title,
         components::instance_follow_button::InstanceFollowButton,
+        instance_title_with_domain,
+        instance_updated,
     },
 };
 use leptos::prelude::*;
+use leptos_meta::Title;
 use leptos_router::hooks::use_params_map;
 use url::Url;
 
@@ -32,7 +35,7 @@ pub fn InstanceDetails() -> impl IntoView {
                             move || instance.id,
                             |instance_id| async move {
                                 CLIENT
-                                    .list_articles(ListArticlesForm {
+                                    .list_articles(ListArticlesParams {
                                         only_local: None,
                                         instance_id: Some(instance_id),
                                     })
@@ -40,18 +43,19 @@ pub fn InstanceDetails() -> impl IntoView {
                                     .unwrap()
                             },
                         );
+                        let title = instance_title_with_domain(&instance);
                         let instance_ = instance.clone();
                         view! {
+                            <Title text=title.clone() />
                             <div class="grid gap-3 mt-4">
                                 <div class="flex flex-row items-center">
-                                    <h1 class="w-full font-serif text-4xl font-bold">
-                                        {instance.domain}
-                                    </h1>
+                                    <h1 class="w-full font-serif text-4xl font-bold">{title}</h1>
+                                    {instance_updated(&instance_)}
                                     <InstanceFollowButton instance=instance_.clone() />
                                 </div>
 
                                 <div class="divider"></div>
-                                <div>{instance.description}</div>
+                                <div>{instance.topic}</div>
                                 <h2 class="font-serif text-xl font-bold">Articles</h2>
                                 <ul class="list-none">
                                     <Suspense>

@@ -16,6 +16,23 @@ diesel::table! {
 }
 
 diesel::table! {
+    comment (id) {
+        id -> Int4,
+        creator_id -> Int4,
+        article_id -> Int4,
+        parent_id -> Nullable<Int4>,
+        content -> Text,
+        depth -> Int4,
+        #[max_length = 255]
+        ap_id -> Varchar,
+        local -> Bool,
+        deleted -> Bool,
+        published -> Timestamptz,
+        updated -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     conflict (id) {
         id -> Int4,
         hash -> Uuid,
@@ -40,6 +57,7 @@ diesel::table! {
         article_id -> Int4,
         previous_version_id -> Uuid,
         published -> Timestamptz,
+        pending -> Bool,
     }
 }
 
@@ -49,7 +67,7 @@ diesel::table! {
         domain -> Text,
         #[max_length = 255]
         ap_id -> Varchar,
-        description -> Nullable<Text>,
+        topic -> Nullable<Text>,
         #[max_length = 255]
         articles_url -> Nullable<Varchar>,
         #[max_length = 255]
@@ -60,6 +78,7 @@ diesel::table! {
         local -> Bool,
         #[max_length = 255]
         instances_url -> Nullable<Varchar>,
+        name -> Nullable<Text>,
     }
 }
 
@@ -79,6 +98,7 @@ diesel::table! {
         users_active_month -> Int4,
         users_active_half_year -> Int4,
         articles -> Int4,
+        comments -> Int4,
     }
 }
 
@@ -118,6 +138,8 @@ diesel::table! {
 }
 
 diesel::joinable!(article -> instance (instance_id));
+diesel::joinable!(comment -> article (article_id));
+diesel::joinable!(comment -> person (creator_id));
 diesel::joinable!(conflict -> article (article_id));
 diesel::joinable!(conflict -> person (creator_id));
 diesel::joinable!(edit -> article (article_id));
@@ -128,6 +150,7 @@ diesel::joinable!(local_user -> person (person_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     article,
+    comment,
     conflict,
     edit,
     instance,

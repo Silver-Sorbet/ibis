@@ -1,17 +1,16 @@
 use crate::{
     backend::{
-        database::{schema::conflict, IbisData},
-        error::MyResult,
+        database::{
+            schema::{conflict, edit},
+            IbisContext,
+        },
         federation::activities::submit_article_update,
-        utils::generate_article_version,
+        utils::{error::MyResult, generate_article_version},
     },
     common::{
+        article::{ApiConflict, DbArticle, DbEdit, EditVersion},
         newtypes::{ArticleId, ConflictId, PersonId},
-        ApiConflict,
-        DbArticle,
-        DbEdit,
-        DbPerson,
-        EditVersion,
+        user::DbPerson,
     },
 };
 use activitypub_federation::config::Data;
@@ -58,38 +57,48 @@ pub struct DbConflictForm {
 }
 
 impl DbConflict {
-    pub fn create(form: &DbConflictForm, data: &IbisData) -> MyResult<Self> {
-        let mut conn = data.db_pool.get()?;
+    pub fn create(form: &DbConflictForm, context: &IbisContext) -> MyResult<Self> {
+        let mut conn = context.db_pool.get()?;
         Ok(insert_into(conflict::table)
             .values(form)
             .get_result(conn.deref_mut())?)
     }
 
-    pub fn list(person: &DbPerson, data: &IbisData) -> MyResult<Vec<Self>> {
-        let mut conn = data.db_pool.get()?;
+    pub fn list(person: &DbPerson, context: &IbisContext) -> MyResult<Vec<Self>> {
+        let mut conn = context.db_pool.get()?;
         Ok(conflict::table
             .filter(conflict::dsl::creator_id.eq(person.id))
             .get_results(conn.deref_mut())?)
     }
 
     /// Delete merge conflict which was created by specific user
-    pub fn delete(id: ConflictId, creator_id: PersonId, data: &IbisData) -> MyResult<Self> {
-        let mut conn = data.db_pool.get()?;
-        Ok(delete(
+    pub fn delete(id: ConflictId, creator_id: PersonId, context: &IbisContext) -> MyResult<()> {
+        let mut conn = context.db_pool.get()?;
+        let conflict: Self = delete(
             conflict::table
                 .filter(conflict::dsl::creator_id.eq(creator_id))
                 .find(id),
         )
-        .get_result(conn.deref_mut())?)
+        .get_result(conn.deref_mut())?;
+        delete(
+            edit::table
+                .filter(edit::dsl::creator_id.eq(creator_id))
+                .filter(edit::dsl::hash.eq(conflict.hash)),
+        )
+        .execute(conn.deref_mut())?;
+        Ok(())
     }
 
-    pub async fn to_api_conflict(&self, data: &Data<IbisData>) -> MyResult<Option<ApiConflict>> {
-        let article = DbArticle::read_view(self.article_id, data)?;
+    pub async fn to_api_conflict(
+        &self,
+        context: &Data<IbisContext>,
+    ) -> MyResult<Option<ApiConflict>> {
+        let article = DbArticle::read_view(self.article_id, context)?;
         // Make sure to get latest version from origin so that all conflicts can be resolved
-        let original_article = article.article.ap_id.dereference_forced(data).await?;
+        let original_article = article.article.ap_id.dereference_forced(context).await?;
 
         // create common ancestor version
-        let edits = DbEdit::list_for_article(original_article.id, data)?;
+        let edits = DbEdit::list_for_article(original_article.id, context)?;
         let ancestor = generate_article_version(&edits, &self.previous_version_id)?;
 
         let patch = Patch::from_str(&self.diff)?;
@@ -105,10 +114,10 @@ impl DbConflict {
                     self.previous_version_id.clone(),
                     &original_article,
                     self.creator_id,
-                    data,
+                    context,
                 )
                 .await?;
-                DbConflict::delete(self.id, self.creator_id, data)?;
+                DbConflict::delete(self.id, self.creator_id, context)?;
                 Ok(None)
             }
             Err(three_way_merge) => {
@@ -119,7 +128,7 @@ impl DbConflict {
                     three_way_merge,
                     summary: self.summary.clone(),
                     article: original_article.clone(),
-                    previous_version_id: original_article.latest_edit_version(data)?,
+                    previous_version_id: original_article.latest_edit_version(context)?,
                     published: self.published,
                 }))
             }

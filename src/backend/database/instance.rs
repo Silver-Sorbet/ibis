@@ -1,16 +1,20 @@
 use crate::{
     backend::{
         database::{
-            schema::{instance, instance_follow},
-            IbisData,
+            schema::{article, comment, instance, instance_follow},
+            IbisContext,
         },
-        error::MyResult,
         federation::objects::{
             articles_collection::DbArticleCollection,
             instance_collection::DbInstanceCollection,
         },
+        utils::error::MyResult,
     },
-    common::{newtypes::InstanceId, DbInstance, DbPerson, InstanceView},
+    common::{
+        instance::{DbInstance, InstanceView},
+        newtypes::{CommentId, InstanceId},
+        user::DbPerson,
+    },
 };
 use activitypub_federation::{
     config::Data,
@@ -19,6 +23,7 @@ use activitypub_federation::{
 use chrono::{DateTime, Utc};
 use diesel::{
     insert_into,
+    update,
     AsChangeset,
     ExpressionMethods,
     Insertable,
@@ -33,7 +38,7 @@ use std::{fmt::Debug, ops::DerefMut};
 pub struct DbInstanceForm {
     pub domain: String,
     pub ap_id: ObjectId<DbInstance>,
-    pub description: Option<String>,
+    pub topic: Option<String>,
     pub articles_url: Option<CollectionId<DbArticleCollection>>,
     pub inbox_url: String,
     pub public_key: String,
@@ -41,11 +46,19 @@ pub struct DbInstanceForm {
     pub last_refreshed_at: DateTime<Utc>,
     pub local: bool,
     pub instances_url: Option<CollectionId<DbInstanceCollection>>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, AsChangeset)]
+#[diesel(table_name = instance, check_for_backend(diesel::pg::Pg))]
+pub struct DbInstanceUpdateForm {
+    pub topic: Option<String>,
+    pub name: Option<String>,
 }
 
 impl DbInstance {
-    pub fn create(form: &DbInstanceForm, data: &IbisData) -> MyResult<Self> {
-        let mut conn = data.db_pool.get()?;
+    pub fn create(form: &DbInstanceForm, context: &IbisContext) -> MyResult<Self> {
+        let mut conn = context.db_pool.get()?;
         Ok(insert_into(instance::table)
             .values(form)
             .on_conflict(instance::ap_id)
@@ -54,34 +67,45 @@ impl DbInstance {
             .get_result(conn.deref_mut())?)
     }
 
-    pub fn read(id: InstanceId, data: &IbisData) -> MyResult<Self> {
-        let mut conn = data.db_pool.get()?;
+    pub fn read(id: InstanceId, context: &IbisContext) -> MyResult<Self> {
+        let mut conn = context.db_pool.get()?;
         Ok(instance::table.find(id).get_result(conn.deref_mut())?)
+    }
+
+    pub fn update(form: DbInstanceUpdateForm, context: &IbisContext) -> MyResult<Self> {
+        let mut conn = context.db_pool.get()?;
+        Ok(update(instance::table)
+            .filter(instance::local)
+            .set(form)
+            .get_result(conn.deref_mut())?)
     }
 
     pub fn read_from_ap_id(
         ap_id: &ObjectId<DbInstance>,
-        data: &Data<IbisData>,
+        context: &Data<IbisContext>,
     ) -> MyResult<DbInstance> {
-        let mut conn = data.db_pool.get()?;
+        let mut conn = context.db_pool.get()?;
         Ok(instance::table
             .filter(instance::ap_id.eq(ap_id))
             .get_result(conn.deref_mut())?)
     }
 
-    pub fn read_local_instance(data: &IbisData) -> MyResult<Self> {
-        let mut conn = data.db_pool.get()?;
+    pub fn read_local(context: &IbisContext) -> MyResult<Self> {
+        let mut conn = context.db_pool.get()?;
         Ok(instance::table
             .filter(instance::local.eq(true))
             .get_result(conn.deref_mut())?)
     }
 
-    pub fn read_view(id: Option<InstanceId>, data: &Data<IbisData>) -> MyResult<InstanceView> {
+    pub fn read_view(
+        id: Option<InstanceId>,
+        context: &Data<IbisContext>,
+    ) -> MyResult<InstanceView> {
         let instance = match id {
-            Some(id) => DbInstance::read(id, data),
-            None => DbInstance::read_local_instance(data),
+            Some(id) => DbInstance::read(id, context),
+            None => DbInstance::read_local(context),
         }?;
-        let followers = DbInstance::read_followers(instance.id, data)?;
+        let followers = DbInstance::read_followers(instance.id, context)?;
 
         Ok(InstanceView {
             instance,
@@ -93,10 +117,10 @@ impl DbInstance {
         follower: &DbPerson,
         instance: &DbInstance,
         pending_: bool,
-        data: &Data<IbisData>,
+        context: &Data<IbisContext>,
     ) -> MyResult<()> {
         use instance_follow::dsl::{follower_id, instance_id, pending};
-        let mut conn = data.db_pool.get()?;
+        let mut conn = context.db_pool.get()?;
         let form = (
             instance_id.eq(instance.id),
             follower_id.eq(follower.id),
@@ -112,10 +136,10 @@ impl DbInstance {
         Ok(())
     }
 
-    pub fn read_followers(id_: InstanceId, data: &IbisData) -> MyResult<Vec<DbPerson>> {
+    pub fn read_followers(id_: InstanceId, context: &IbisContext) -> MyResult<Vec<DbPerson>> {
         use crate::backend::database::schema::person;
         use instance_follow::dsl::{follower_id, instance_id};
-        let mut conn = data.db_pool.get()?;
+        let mut conn = context.db_pool.get()?;
         Ok(instance_follow::table
             .inner_join(person::table.on(follower_id.eq(person::id)))
             .filter(instance_id.eq(id_))
@@ -123,10 +147,27 @@ impl DbInstance {
             .get_results(conn.deref_mut())?)
     }
 
-    pub fn read_remote(data: &Data<IbisData>) -> MyResult<Vec<DbInstance>> {
-        let mut conn = data.db_pool.get()?;
+    pub fn list(only_remote: bool, context: &Data<IbisContext>) -> MyResult<Vec<DbInstance>> {
+        let mut conn = context.db_pool.get()?;
+        let mut query = instance::table.into_boxed();
+        if only_remote {
+            query = query.filter(instance::local.eq(false));
+        }
+        Ok(query.get_results(conn.deref_mut())?)
+    }
+
+    /// Read the instance where an article is hosted, based on a comment id.
+    /// Note this may be different from the instance where the comment is hosted.
+    pub fn read_for_comment(
+        comment_id: CommentId,
+        context: &Data<IbisContext>,
+    ) -> MyResult<DbInstance> {
+        let mut conn = context.db_pool.get()?;
         Ok(instance::table
-            .filter(instance::local.eq(false))
-            .get_results(conn.deref_mut())?)
+            .inner_join(article::table)
+            .inner_join(comment::table.on(comment::article_id.eq(article::id)))
+            .filter(comment::id.eq(comment_id))
+            .select(instance::all_columns)
+            .get_result(conn.deref_mut())?)
     }
 }

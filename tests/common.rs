@@ -6,7 +6,7 @@ use ibis::{
         config::{IbisConfig, IbisConfigDatabase, IbisConfigFederation},
         start,
     },
-    common::{Options, RegisterUserForm},
+    common::{instance::Options, user::RegisterUserParams},
     frontend::api::ApiClient,
 };
 use reqwest::ClientBuilder;
@@ -32,8 +32,8 @@ impl TestData {
         INIT.call_once(|| {
             env_logger::builder()
                 .filter_level(LevelFilter::Warn)
-                .filter_module("activitypub_federation", LevelFilter::Info)
-                .filter_module("ibis", LevelFilter::Info)
+                //.filter_module("activitypub_federation", LevelFilter::Info)
+                //.filter_module("ibis", LevelFilter::Info)
                 .init();
         });
 
@@ -137,11 +137,11 @@ impl IbisInstance {
         });
         // wait for the backend to start
         rx.await.unwrap();
-        let form = RegisterUserForm {
+        let params = RegisterUserParams {
             username: username.to_string(),
             password: "hunter2".to_string(),
         };
-        api_client.register(form).await.unwrap();
+        api_client.register(params).await.unwrap();
         Self {
             api_client,
             db_path,

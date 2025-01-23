@@ -1,20 +1,22 @@
 use crate::{
-    common::SiteView,
+    common::instance::SiteView,
     frontend::{
         api::CLIENT,
         components::{nav::Nav, protected_route::IbisProtectedRoute},
         dark_mode::DarkMode,
+        instance_title,
         pages::{
             article::{
                 actions::ArticleActions,
                 create::CreateArticle,
+                discussion::ArticleDiscussion,
                 edit::EditArticle,
                 history::ArticleHistory,
                 list::ListArticles,
                 read::ReadArticle,
             },
             diff::EditDiff,
-            instance::{details::InstanceDetails, list::ListInstances},
+            instance::{details::InstanceDetails, list::ListInstances, settings::InstanceSettings},
             login::Login,
             notifications::Notifications,
             register::Register,
@@ -93,6 +95,10 @@ pub fn App() -> impl IntoView {
     let darkmode = DarkMode::init();
     provide_context(darkmode.clone());
 
+    let instance = Resource::new(
+        || (),
+        |_| async move { CLIENT.get_local_instance().await.unwrap() },
+    );
     view! {
         <Html attr:data-theme=darkmode.theme {..} class="h-full" />
         <Body {..} class="h-full max-sm:flex max-sm:flex-col" />
@@ -100,11 +106,24 @@ pub fn App() -> impl IntoView {
             <Stylesheet id="ibis" href="/pkg/ibis.css" />
             <Stylesheet id="katex" href="/katex.min.css" />
             <Router>
+                <Suspense>
+                    {move || {
+                        instance
+                            .get()
+                            .map(|i| {
+                                let formatter = move |text| {
+                                    format!("{text} — {}", instance_title(&i.instance))
+                                };
+                                view! { <Title formatter /> }
+                            })
+                    }}
+                </Suspense>
                 <Nav />
                 <main class="p-4 md:ml-64">
                     <Routes fallback=|| "Page not found.".into_view()>
                         <Route path=path!("/") view=ReadArticle />
                         <Route path=path!("/article/:title") view=ReadArticle />
+                        <Route path=path!("/article/:title/discussion") view=ArticleDiscussion />
                         <Route path=path!("/article/:title/history") view=ArticleHistory />
                         <IbisProtectedRoute
                             path=path!("/article/:title/edit/:conflict_id?")
@@ -125,6 +144,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/search") view=Search />
                         <IbisProtectedRoute path=path!("/edit_profile") view=UserEditProfile />
                         <IbisProtectedRoute path=path!("/notifications") view=Notifications />
+                        <IbisProtectedRoute path=path!("/settings") view=InstanceSettings />
                     </Routes>
                 </main>
             </Router>

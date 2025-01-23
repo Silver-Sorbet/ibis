@@ -1,21 +1,20 @@
 use crate::{
     common::{
+        article::{ApiConflict, DbArticleView, EditArticleParams},
         newtypes::ConflictId,
-        ApiConflict,
-        ArticleView,
-        EditArticleForm,
         Notification,
         MAIN_PAGE_NAME,
     },
     frontend::{
         api::CLIENT,
         components::{
+            article_editor::EditorView,
             article_nav::{ActiveTab, ArticleNav},
-            editor::EditorView,
         },
         pages::article_resource,
     },
 };
+use chrono::{Days, Utc};
 use leptos::{html::Textarea, prelude::*};
 use leptos_router::{components::Redirect, hooks::use_params_map};
 use leptos_use::{use_textarea_autosize, UseTextareaAutosizeReturn};
@@ -72,7 +71,7 @@ pub fn EditArticle() -> impl IntoView {
         move |(new_text, summary, article, edit_response): &(
             String,
             String,
-            ArticleView,
+            DbArticleView,
             EditResponse,
         )| {
             let new_text = new_text.clone();
@@ -88,7 +87,7 @@ pub fn EditArticle() -> impl IntoView {
             };
             async move {
                 set_edit_error.update(|e| *e = None);
-                let form = EditArticleForm {
+                let params = EditArticleParams {
                     article_id: article.article.id,
                     new_text,
                     summary,
@@ -96,7 +95,7 @@ pub fn EditArticle() -> impl IntoView {
                     resolve_conflict_id,
                 };
                 set_wait_for_response.update(|w| *w = true);
-                let res = CLIENT.edit_article_with_conflict(&form).await;
+                let res = CLIENT.edit_article_with_conflict(&params).await;
                 set_wait_for_response.update(|w| *w = false);
                 match res {
                     Ok(Some(conflict)) => {
@@ -135,6 +134,9 @@ pub fn EditArticle() -> impl IntoView {
                                     }
                                     set_content.set(article.article.text.clone());
                                     let article_ = article.clone();
+                                    let show_federation_warning = !article.instance.local
+                                        && article.instance.last_refreshed_at + Days::new(3)
+                                            < Utc::now();
                                     view! {
                                         // set initial text, otherwise submit with no changes results in empty text
                                         <div>
@@ -142,9 +144,18 @@ pub fn EditArticle() -> impl IntoView {
                                                 edit_error
                                                     .get()
                                                     .map(|err| {
-                                                        view! { <p style="color:red;">{err}</p> }
+                                                        view! { <p class="alert alert-error">{err}</p> }
                                                     })
-                                            }} <EditorView textarea_ref content set_content />
+                                            }} <Show when=move || show_federation_warning>
+                                                <div class="alert alert-warning">
+                                                    "This article is hosted on "
+                                                    {article.instance.domain.clone()}
+                                                    " which hasnt been federated in "
+                                                    {(Utc::now() - article.instance.last_refreshed_at)
+                                                        .num_days()}
+                                                    " days. Edits will most likely fail. Instead consider forking the article to your local instance (under Actions), or edit a different article."
+                                                </div>
+                                            </Show> <EditorView textarea_ref content set_content />
                                             <div class="flex flex-row mr-2">
                                                 <input
                                                     type="text"

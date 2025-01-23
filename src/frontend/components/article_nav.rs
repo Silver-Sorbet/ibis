@@ -1,5 +1,5 @@
 use crate::{
-    common::{validation::can_edit_article, ArticleView},
+    common::{article::DbArticleView, validation::can_edit_article},
     frontend::{
         app::{is_admin, is_logged_in},
         article_path,
@@ -7,17 +7,19 @@ use crate::{
     },
 };
 use leptos::prelude::*;
+use leptos_meta::Title;
 use leptos_router::components::A;
 
 pub enum ActiveTab {
     Read,
+    Discussion,
     History,
     Edit,
     Actions,
 }
 
 #[component]
-pub fn ArticleNav(article: Resource<ArticleView>, active_tab: ActiveTab) -> impl IntoView {
+pub fn ArticleNav(article: Resource<DbArticleView>, active_tab: ActiveTab) -> impl IntoView {
     let tab_classes = tab_classes(&active_tab);
 
     view! {
@@ -31,9 +33,17 @@ pub fn ArticleNav(article: Resource<ArticleView>, active_tab: ActiveTab) -> impl
                         let article_link_ = article_link.clone();
                         let protected = article_.article.protected;
                         view! {
+                            <Title text=page_title(&active_tab, &title) />
                             <div role="tablist" class="tabs tabs-lifted">
                                 <A href=article_link.clone() {..} class=tab_classes.read>
                                     "Read"
+                                </A>
+                                <A
+                                    href=format!("{article_link}/discussion")
+                                    {..}
+                                    class=tab_classes.discussion
+                                >
+                                    "Discussion"
                                 </A>
                                 <A
                                     href=format!("{article_link}/history")
@@ -89,6 +99,7 @@ pub fn ArticleNav(article: Resource<ArticleView>, active_tab: ActiveTab) -> impl
 
 struct ActiveTabClasses {
     read: &'static str,
+    discussion: &'static str,
     history: &'static str,
     edit: &'static str,
     actions: &'static str,
@@ -99,15 +110,28 @@ fn tab_classes(active_tab: &ActiveTab) -> ActiveTabClasses {
     const TAB_ACTIVE: &str = "tab tab-active";
     let mut classes = ActiveTabClasses {
         read: TAB_INACTIVE,
+        discussion: TAB_INACTIVE,
         history: TAB_INACTIVE,
         edit: TAB_INACTIVE,
         actions: TAB_INACTIVE,
     };
     match active_tab {
         ActiveTab::Read => classes.read = TAB_ACTIVE,
+        ActiveTab::Discussion => classes.discussion = TAB_ACTIVE,
         ActiveTab::History => classes.history = TAB_ACTIVE,
         ActiveTab::Edit => classes.edit = TAB_ACTIVE,
         ActiveTab::Actions => classes.actions = TAB_ACTIVE,
     }
     classes
+}
+
+fn page_title(active_tab: &ActiveTab, article_title: &str) -> String {
+    let active = match active_tab {
+        ActiveTab::Read => return article_title.to_string(),
+        ActiveTab::Discussion => "Discuss",
+        ActiveTab::History => "History",
+        ActiveTab::Edit => "Edit",
+        ActiveTab::Actions => "Actions",
+    };
+    format!("{active} — {article_title}")
 }
