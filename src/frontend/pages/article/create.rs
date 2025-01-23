@@ -13,6 +13,7 @@ use leptos_use::{use_textarea_autosize, UseTextareaAutosizeReturn};
 #[component]
 pub fn CreateArticle() -> impl IntoView {
     let (title, set_title) = signal(String::new());
+    let (instance, set_instance) = signal(String::new());
     let textarea_ref = NodeRef::<Textarea>::new();
     let UseTextareaAutosizeReturn {
         content,
@@ -25,15 +26,17 @@ pub fn CreateArticle() -> impl IntoView {
     let (wait_for_response, set_wait_for_response) = signal(false);
     let button_is_disabled =
         Signal::derive(move || wait_for_response.get() || summary.get().is_empty());
-    let submit_action = Action::new(move |(title, text, summary): &(String, String, String)| {
+    let submit_action = Action::new(move |(title, text, summary, instance): &(String, String, String, String)| {
         let title = title.clone();
         let text = text.clone();
         let summary = summary.clone();
+        let instance = instance.clone();
         async move {
             let form = CreateArticleForm {
                 title,
                 text,
                 summary,
+                instance,
             };
             set_wait_for_response.update(|w| *w = true);
             let res = CLIENT.create_article(&form).await;
@@ -54,6 +57,11 @@ pub fn CreateArticle() -> impl IntoView {
     let show_approval_message = Signal::derive(move || {
         site().with_default(|site| site.config.article_approval) && !is_admin()
     });
+
+    let instances = Resource::new(
+        move || (),
+        |_| async move { CLIENT.list_instances().await.unwrap() },
+    );
 
     view! {
         <h1 class="my-4 font-serif text-4xl font-bold">Create new Article</h1>
@@ -80,6 +88,32 @@ pub fn CreateArticle() -> impl IntoView {
                                 set_title.update(|v| *v = val);
                             }
                         />
+                        <input
+                            class="w-full input"
+                            type="text"
+                            list="instances"
+                            required
+                            placeholder="Select Instance"
+                            prop:disabled=move || wait_for_response.get()
+                            on:keyup=move |ev| {
+                                let val = event_target_value(&ev);
+                                set_instance.update(|v| *v = val);
+                            }
+                        />
+                        <datalist id="instances">
+                        {move || {
+                            instances
+                                .get()
+                                .map(|a| {
+                                    a.into_iter()
+                                        .map(|ref i| {
+                                            view! {<option>{i.domain.to_string()}</option>}
+                                        }).collect::<Vec<_>>()
+                                }) 
+                
+                        }}
+                        </datalist>
+
 
                         <EditorView textarea_ref content set_content />
 
@@ -107,7 +141,7 @@ pub fn CreateArticle() -> impl IntoView {
                                 prop:disabled=move || button_is_disabled.get()
                                 on:click=move |_| {
                                     submit_action
-                                        .dispatch((title.get(), content.get(), summary.get()));
+                                        .dispatch((title.get(), content.get(), summary.get(), instance.get()));
                                 }
                             >
                                 Submit

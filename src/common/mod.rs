@@ -201,6 +201,7 @@ pub struct CreateArticleForm {
     pub title: String,
     pub text: String,
     pub summary: String,
+    pub instance: String,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
