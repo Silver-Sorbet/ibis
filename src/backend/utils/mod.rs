@@ -1,5 +1,5 @@
 use crate::{
-    backend::{database::IbisContext, utils::error::MyResult},
+    backend::{database::IbisContext, utils::error::BackendResult},
     common::{
         article::{DbEdit, EditVersion},
         utils,
@@ -15,6 +15,7 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use std::sync::LazyLock;
 use url::{ParseError, Url};
 
+pub mod config;
 pub mod error;
 pub(super) mod scheduled_tasks;
 pub(super) mod validate;
@@ -42,7 +43,7 @@ pub(super) fn generate_activity_id(context: &Data<IbisContext>) -> Result<Url, P
 pub(super) fn generate_article_version(
     edits: &Vec<DbEdit>,
     version: &EditVersion,
-) -> MyResult<String> {
+) -> BackendResult<String> {
     let mut generated = String::new();
     if version == &EditVersion::default() {
         return Ok(generated);
@@ -59,7 +60,7 @@ pub(super) fn generate_article_version(
 
 /// Use a single static keypair during testing which is signficantly faster than
 /// generating dozens of keys from scratch.
-pub fn generate_keypair() -> MyResult<Keypair> {
+pub fn generate_keypair() -> BackendResult<Keypair> {
     if cfg!(debug_assertions) {
         static KEYPAIR: LazyLock<Keypair> =
             LazyLock::new(|| generate_actor_keypair().expect("generate keypair"));
@@ -80,8 +81,8 @@ mod test {
     use chrono::Utc;
     use diffy::create_patch;
 
-    fn create_edits() -> MyResult<Vec<DbEdit>> {
-        let generate_edit = |a, b| -> MyResult<DbEdit> {
+    fn create_edits() -> BackendResult<Vec<DbEdit>> {
+        let generate_edit = |a, b| -> BackendResult<DbEdit> {
             let diff = create_patch(a, b).to_string();
             Ok(DbEdit {
                 id: EditId(0),
@@ -105,7 +106,7 @@ mod test {
     }
 
     #[test]
-    fn test_generate_article_version() -> MyResult<()> {
+    fn test_generate_article_version() -> BackendResult<()> {
         let edits = create_edits()?;
         let generated = generate_article_version(&edits, &edits[1].hash)?;
         assert_eq!("sda\n", generated);
@@ -113,7 +114,7 @@ mod test {
     }
 
     #[test]
-    fn test_generate_invalid_version() -> MyResult<()> {
+    fn test_generate_invalid_version() -> BackendResult<()> {
         let edits = create_edits()?;
         let generated = generate_article_version(&edits, &EditVersion::new("invalid"));
         assert!(generated.is_err());
@@ -121,7 +122,7 @@ mod test {
     }
 
     #[test]
-    fn test_generate_first_version() -> MyResult<()> {
+    fn test_generate_first_version() -> BackendResult<()> {
         let edits = create_edits()?;
         let generated = generate_article_version(&edits, &EditVersion::default())?;
         assert_eq!("", generated);

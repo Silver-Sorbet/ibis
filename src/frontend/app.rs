@@ -1,30 +1,27 @@
-use crate::{
-    common::instance::SiteView,
-    frontend::{
-        api::CLIENT,
-        components::{nav::Nav, protected_route::IbisProtectedRoute},
-        dark_mode::DarkMode,
-        instance_title,
-        pages::{
-            article::{
-                actions::ArticleActions,
-                create::CreateArticle,
-                discussion::ArticleDiscussion,
-                edit::EditArticle,
-                history::ArticleHistory,
-                list::ListArticles,
-                read::ReadArticle,
-            },
+use crate::frontend::{
+    api::CLIENT,
+    components::{nav::Nav, protected_route::IbisProtectedRoute},
+    pages::{
+        article::{
+            actions::ArticleActions,
+            create::CreateArticle,
             diff::EditDiff,
-            instance::{details::InstanceDetails, list::ListInstances, settings::InstanceSettings},
+            discussion::ArticleDiscussion,
+            edit::EditArticle,
+            history::ArticleHistory,
+            read::ReadArticle,
+        },
+        explore::Explore,
+        instance::{details::InstanceDetails, search::Search, settings::InstanceSettings},
+        user::{
+            edit_profile::UserEditProfile,
             login::Login,
             notifications::Notifications,
+            profile::UserProfile,
             register::Register,
-            search::Search,
-            user_edit_profile::UserEditProfile,
-            user_profile::UserProfile,
         },
     },
+    utils::{dark_mode::DarkMode, errors::ErrorPopup, formatting::instance_title},
 };
 use leptos::prelude::*;
 use leptos_meta::{provide_meta_context, *};
@@ -33,40 +30,6 @@ use leptos_router::{
     path,
 };
 
-pub fn site() -> Resource<SiteView> {
-    use_context::<Resource<SiteView>>().unwrap()
-}
-
-pub fn is_logged_in() -> bool {
-    site().with_default(|site| site.my_profile.is_some())
-}
-pub fn is_admin() -> bool {
-    site().with_default(|site| {
-        site.my_profile
-            .as_ref()
-            .map(|p| p.local_user.admin)
-            .unwrap_or(false)
-    })
-}
-pub trait DefaultResource<T> {
-    fn with_default<O>(&self, f: impl FnOnce(&T) -> O) -> O;
-    fn get_default(&self) -> T;
-}
-
-impl<T: Default + Send + Sync + Clone> DefaultResource<T> for Resource<T> {
-    fn with_default<O>(&self, f: impl FnOnce(&T) -> O) -> O {
-        self.with(|x| match x {
-            Some(x) => f(x),
-            None => f(&T::default()),
-        })
-    }
-    fn get_default(&self) -> T {
-        match self.get() {
-            Some(x) => x.clone(),
-            None => T::default(),
-        }
-    }
-}
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
         <!DOCTYPE html>
@@ -89,16 +52,16 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 pub fn App() -> impl IntoView {
     provide_meta_context();
 
-    let site_resource = Resource::new(|| (), |_| async move { CLIENT.site().await.unwrap() });
+    let site_resource = Resource::new(|| (), |_| async move { CLIENT.site().await });
     provide_context(site_resource);
+
+    let instance = Resource::new(|| (), |_| async move { CLIENT.get_local_instance().await });
 
     let darkmode = DarkMode::init();
     provide_context(darkmode.clone());
 
-    let instance = Resource::new(
-        || (),
-        |_| async move { CLIENT.get_local_instance().await.unwrap() },
-    );
+    ErrorPopup::init();
+
     view! {
         <Html attr:data-theme=darkmode.theme {..} class="h-full" />
         <Body {..} class="h-full max-sm:flex max-sm:flex-col" />
@@ -106,37 +69,40 @@ pub fn App() -> impl IntoView {
             <Stylesheet id="ibis" href="/pkg/ibis.css" />
             <Stylesheet id="katex" href="/katex.min.css" />
             <Router>
-                <Suspense>
-                    {move || {
-                        instance
-                            .get()
-                            .map(|i| {
-                                let formatter = move |text| {
-                                    format!("{text} — {}", instance_title(&i.instance))
-                                };
-                                view! { <Title formatter /> }
-                            })
-                    }}
-                </Suspense>
                 <Nav />
                 <main class="p-4 md:ml-64">
+                    <Suspense>
+                        {move || Suspend::new(async move {
+                            instance
+                                .await
+                                .map(|i| {
+                                    let formatter = move |text| {
+                                        format!("{text} — {}", instance_title(&i.instance))
+                                    };
+                                    view! { <Title formatter /> }
+                                })
+                        })}
+                    </Suspense>
+                    <Show when=move || ErrorPopup::get().is_some()>
+                        <div class="toast">
+                            <div class="alert alert-error">
+                                <span>{ErrorPopup::get()}</span>
+                            </div>
+                        </div>
+                    </Show>
                     <Routes fallback=|| "Page not found.".into_view()>
                         <Route path=path!("/") view=ReadArticle />
                         <Route path=path!("/article/:title") view=ReadArticle />
                         <Route path=path!("/article/:title/discussion") view=ArticleDiscussion />
                         <Route path=path!("/article/:title/history") view=ArticleHistory />
-                        <IbisProtectedRoute
-                            path=path!("/article/:title/edit/:conflict_id?")
-                            view=EditArticle
-                        />
+                        <IbisProtectedRoute path=path!("/article/:title/edit") view=EditArticle />
                         <IbisProtectedRoute
                             path=path!("/article/:title/actions")
                             view=ArticleActions
                         />
                         <Route path=path!("/article/:title/diff/:hash") view=EditDiff />
                         <IbisProtectedRoute path=path!("/create-article") view=CreateArticle />
-                        <Route path=path!("/articles") view=ListArticles />
-                        <Route path=path!("/instances") view=ListInstances />
+                        <Route path=path!("/explore") view=Explore />
                         <Route path=path!("/instance/:hostname") view=InstanceDetails />
                         <Route path=path!("/user/:name") view=UserProfile />
                         <Route path=path!("/login") view=Login />

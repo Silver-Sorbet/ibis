@@ -1,6 +1,6 @@
-use super::utils::error::MyResult;
+use super::utils::error::BackendResult;
 use crate::{
-    backend::{config::IbisConfig, database::IbisContext},
+    backend::{database::IbisContext, utils::config::IbisConfig},
     common::{instance::DbInstance, user::DbPerson},
 };
 use activities::announce::AnnounceActivity;
@@ -41,7 +41,7 @@ pub async fn send_activity_to_instance(
     activity: AnnouncableActivities,
     instance: &DbInstance,
     context: &Data<IbisContext>,
-) -> MyResult<()> {
+) -> BackendResult<()> {
     if instance.local {
         AnnounceActivity::send(activity, context).await?;
     } else {

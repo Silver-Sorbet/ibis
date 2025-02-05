@@ -187,6 +187,11 @@ pub struct ApiConflict {
     pub published: DateTime<Utc>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct GetConflictParams {
+    pub conflict_id: ConflictId,
+}
+
 #[test]
 fn test_edit_versions() {
     let default = EditVersion::default();

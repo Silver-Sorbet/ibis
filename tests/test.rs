@@ -54,7 +54,7 @@ async fn test_create_read_and_edit_local_article() -> Result<()> {
 
     // error on article which wasnt federated
     let not_found = beta.get_article(get_article_data.clone()).await;
-    assert!(not_found.is_none());
+    assert!(not_found.is_err());
 
     // edit article
     let edit_params = EditArticleParams {
@@ -64,7 +64,10 @@ async fn test_create_read_and_edit_local_article() -> Result<()> {
         previous_version_id: get_res.latest_version,
         resolve_conflict_id: None,
     };
-    let edit_res = alpha.edit_article(&edit_params).await.unwrap();
+    let edit_res = alpha
+        .edit_article_without_conflict(&edit_params)
+        .await
+        .unwrap();
     assert_eq!(edit_params.new_text, edit_res.article.text);
     let edits = alpha.get_article_edits(edit_res.article.id).await.unwrap();
     assert_eq!(2, edits.len());
@@ -164,7 +167,10 @@ async fn test_synchronize_articles() -> Result<()> {
         previous_version_id: create_res.latest_version,
         resolve_conflict_id: None,
     };
-    let edit_res = alpha.edit_article(&edit_params).await.unwrap();
+    let edit_res = alpha
+        .edit_article_without_conflict(&edit_params)
+        .await
+        .unwrap();
 
     // fetch alpha instance on beta, articles are also fetched automatically
     let instance = beta
@@ -179,7 +185,7 @@ async fn test_synchronize_articles() -> Result<()> {
 
     // try to read remote article by name, fails without domain
     let get_res = beta.get_article(get_article_data.clone()).await;
-    assert!(get_res.is_none());
+    assert!(get_res.is_err());
 
     // get the article with instance id and compare
     let get_res = RetryFuture::new(
@@ -191,11 +197,11 @@ async fn test_synchronize_articles() -> Result<()> {
             };
             let res = beta.get_article(get_article_data).await;
             match res {
-                None => Err(RetryPolicy::<String>::Retry(None)),
-                Some(a) if a.latest_version != edit_res.latest_version => {
+                Err(_) => Err(RetryPolicy::<String>::Retry(None)),
+                Ok(a) if a.latest_version != edit_res.latest_version => {
                     Err(RetryPolicy::Retry(None))
                 }
-                Some(a) => Ok(a),
+                Ok(a) => Ok(a),
             }
         },
         LinearRetryStrategy::new(),
@@ -251,7 +257,10 @@ async fn test_edit_local_article() -> Result<()> {
         previous_version_id: get_res.latest_version,
         resolve_conflict_id: None,
     };
-    let edit_res = beta.edit_article(&edit_params).await.unwrap();
+    let edit_res = beta
+        .edit_article_without_conflict(&edit_params)
+        .await
+        .unwrap();
     let edits = beta.get_article_edits(edit_res.article.id).await.unwrap();
     assert_eq!(edit_res.article.text, edit_params.new_text);
     assert_eq!(edits.len(), 2);
@@ -328,7 +337,10 @@ async fn test_edit_remote_article() -> Result<()> {
         previous_version_id: get_res.latest_version,
         resolve_conflict_id: None,
     };
-    let edit_res = alpha.edit_article(&edit_params).await.unwrap();
+    let edit_res = alpha
+        .edit_article_without_conflict(&edit_params)
+        .await
+        .unwrap();
     assert_eq!(edit_params.new_text, edit_res.article.text);
     let edits = alpha.get_article_edits(edit_res.article.id).await.unwrap();
     assert_eq!(2, edits.len());
@@ -377,7 +389,10 @@ async fn test_local_edit_conflict() -> Result<()> {
         previous_version_id: create_res.latest_version.clone(),
         resolve_conflict_id: None,
     };
-    let edit_res = alpha.edit_article(&edit_params).await.unwrap();
+    let edit_res = alpha
+        .edit_article_without_conflict(&edit_params)
+        .await
+        .unwrap();
     let edits = alpha.get_article_edits(edit_res.article.id).await.unwrap();
     assert_eq!(edit_res.article.text, edit_params.new_text);
     assert_eq!(2, edits.len());
@@ -390,11 +405,7 @@ async fn test_local_edit_conflict() -> Result<()> {
         previous_version_id: create_res.latest_version,
         resolve_conflict_id: None,
     };
-    let edit_res = alpha
-        .edit_article_with_conflict(&edit_params)
-        .await
-        .unwrap()
-        .unwrap();
+    let edit_res = alpha.edit_article(&edit_params).await.unwrap().unwrap();
     assert_eq!("<<<<<<< ours\nIpsum Lorem\n||||||| original\nsome example text\n=======\nLorem Ipsum\n>>>>>>> theirs\n", edit_res.three_way_merge);
 
     let notifications = alpha.notifications_list().await.unwrap();
@@ -411,7 +422,10 @@ async fn test_local_edit_conflict() -> Result<()> {
         previous_version_id: edit_res.previous_version_id,
         resolve_conflict_id: Some(edit_res.id),
     };
-    let edit_res = alpha.edit_article(&edit_params).await.unwrap();
+    let edit_res = alpha
+        .edit_article_without_conflict(&edit_params)
+        .await
+        .unwrap();
     assert_eq!(edit_params.new_text, edit_res.article.text);
 
     assert_eq!(0, alpha.notifications_count().await.unwrap());
@@ -463,7 +477,10 @@ async fn test_federated_edit_conflict() -> Result<()> {
         previous_version_id: create_res.latest_version.clone(),
         resolve_conflict_id: None,
     };
-    let edit_res = alpha.edit_article(&edit_params).await.unwrap();
+    let edit_res = alpha
+        .edit_article_without_conflict(&edit_params)
+        .await
+        .unwrap();
     let alpha_edits = alpha.get_article_edits(get_res.article.id).await.unwrap();
     assert_eq!(edit_res.article.text, edit_params.new_text);
     assert_eq!(2, alpha_edits.len());
@@ -483,7 +500,10 @@ async fn test_federated_edit_conflict() -> Result<()> {
         previous_version_id: create_res.latest_version,
         resolve_conflict_id: None,
     };
-    let edit_res = gamma.edit_article(&edit_params).await.unwrap();
+    let edit_res = gamma
+        .edit_article_without_conflict(&edit_params)
+        .await
+        .unwrap();
     let gamma_edits = gamma.get_article_edits(edit_res.article.id).await.unwrap();
     assert_ne!(edit_params.new_text, edit_res.article.text);
     assert_eq!(2, gamma_edits.len());
@@ -505,7 +525,10 @@ async fn test_federated_edit_conflict() -> Result<()> {
         previous_version_id: conflict.previous_version_id.clone(),
         resolve_conflict_id: Some(conflict.id),
     };
-    let edit_res = gamma.edit_article(&edit_params).await.unwrap();
+    let edit_res = gamma
+        .edit_article_without_conflict(&edit_params)
+        .await
+        .unwrap();
     let gamma_edits = gamma.get_article_edits(edit_res.article.id).await.unwrap();
     assert_eq!(edit_params.new_text, edit_res.article.text);
     assert_eq!(3, gamma_edits.len());
@@ -552,7 +575,10 @@ async fn test_overlapping_edits_no_conflict() -> Result<()> {
         previous_version_id: create_res.latest_version.clone(),
         resolve_conflict_id: None,
     };
-    let edit_res = alpha.edit_article(&edit_params).await.unwrap();
+    let edit_res = alpha
+        .edit_article_without_conflict(&edit_params)
+        .await
+        .unwrap();
     let alpha_edits = alpha.get_article_edits(edit_res.article.id).await.unwrap();
     assert_eq!(edit_res.article.text, edit_params.new_text);
     assert_eq!(2, alpha_edits.len());
@@ -570,7 +596,10 @@ async fn test_overlapping_edits_no_conflict() -> Result<()> {
         previous_version_id: create_res.latest_version,
         resolve_conflict_id: None,
     };
-    let edit_res = alpha.edit_article(&edit_params).await.unwrap();
+    let edit_res = alpha
+        .edit_article_without_conflict(&edit_params)
+        .await
+        .unwrap();
     let alpha_edits = alpha.get_article_edits(edit_res.article.id).await.unwrap();
     assert_eq!(0, alpha.notifications_count().await.unwrap());
     assert_eq!(3, alpha_edits.len());
@@ -748,7 +777,7 @@ async fn test_lock_article() -> Result<()> {
         previous_version_id: resolve_res.latest_version,
         resolve_conflict_id: None,
     };
-    let edit_res = gamma.edit_article(&edit_params).await;
+    let edit_res = gamma.edit_article_without_conflict(&edit_params).await;
     assert!(edit_res.is_none());
 
     TestData::stop(alpha, beta, gamma)
@@ -776,9 +805,9 @@ async fn test_synchronize_instances() -> Result<()> {
         || async {
             let res = gamma.list_instances().await;
             match res {
-                None => Err(RetryPolicy::<String>::Retry(None)),
-                Some(i) if i.len() < 3 => Err(RetryPolicy::Retry(None)),
-                Some(i) => Ok(i),
+                Err(_) => Err(RetryPolicy::<String>::Retry(None)),
+                Ok(i) if i.len() < 3 => Err(RetryPolicy::Retry(None)),
+                Ok(i) => Ok(i),
             }
         },
         LinearRetryStrategy::new(),

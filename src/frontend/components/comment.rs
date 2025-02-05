@@ -6,18 +6,20 @@ use crate::{
     },
     frontend::{
         api::CLIENT,
-        app::{site, DefaultResource},
         components::comment_editor::{CommentEditorView, EditParams},
         markdown::render_comment_markdown,
-        time_ago,
-        user_link,
+        utils::{
+            errors::{FrontendResult, FrontendResultExt},
+            formatting::{time_ago, user_link},
+            resources::my_profile,
+        },
     },
 };
 use leptos::prelude::*;
 
 #[component]
 pub fn CommentView(
-    article: Resource<DbArticleView>,
+    article: Resource<FrontendResult<DbArticleView>>,
     comment: DbCommentView,
     show_editor: (ReadSignal<CommentId>, WriteSignal<CommentId>),
 ) -> impl IntoView {
@@ -35,6 +37,7 @@ pub fn CommentView(
         "/article/{}/discussion#{comment_id}",
         article
             .get()
+            .and_then(|a| a.ok())
             .map(|a| a.article.title.clone())
             .unwrap_or_default(),
     );
@@ -45,12 +48,14 @@ pub fn CommentView(
             deleted: Some(!comment_change_signal.0.get_untracked().deleted),
             content: None,
         };
-        let comment = CLIENT.edit_comment(&params).await.unwrap();
-        comment_change_signal.1.set(comment.comment);
+        CLIENT
+            .edit_comment(&params)
+            .await
+            .error_popup(|comment| comment_change_signal.1.set(comment.comment));
     });
 
-    let is_creator = site().with_default(|site| site.my_profile.as_ref().map(|p| p.person.id))
-        == Some(comment.comment.creator_id);
+    let is_creator =
+        my_profile().map(|my_profile| my_profile.person.id) == Some(comment.comment.creator_id);
 
     let edit_params = EditParams {
         comment: comment.comment.clone(),

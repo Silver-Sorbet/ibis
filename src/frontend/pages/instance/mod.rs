@@ -1,3 +1,3 @@
-pub(crate) mod details;
-pub(crate) mod list;
-pub(crate) mod settings;
+pub mod details;
+pub mod search;
+pub mod settings;
