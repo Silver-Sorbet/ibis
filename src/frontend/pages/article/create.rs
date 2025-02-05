@@ -1,5 +1,6 @@
 use crate::{
     common::article::CreateArticleParams,
+    common::newtypes::InstanceId,
     frontend::{
         api::CLIENT,
         app::{is_admin, site, DefaultResource},
@@ -14,7 +15,7 @@ use leptos_use::{use_textarea_autosize, UseTextareaAutosizeReturn};
 #[component]
 pub fn CreateArticle() -> impl IntoView {
     let (title, set_title) = signal(String::new());
-    let (instance, set_instance) = signal(String::new());
+    let (instance, set_instance) = signal(None::<i32>);
     let textarea_ref = NodeRef::<Textarea>::new();
     let UseTextareaAutosizeReturn {
         content,
@@ -27,11 +28,14 @@ pub fn CreateArticle() -> impl IntoView {
     let (wait_for_response, set_wait_for_response) = signal(false);
     let button_is_disabled =
         Signal::derive(move || wait_for_response.get() || summary.get().is_empty());
-    let submit_action = Action::new(move |(title, text, summary, instance): &(String, String, String, String)| {
+    let submit_action = Action::new(move |(title, text, summary, instance): &(String, String, String, Option::<i32>)| {
         let title = title.clone();
         let text = text.clone();
         let summary = summary.clone();
-        let instance = instance.clone();
+        let instance = match instance {
+            None => None::<InstanceId>,
+            Some(i) => Some(InstanceId(*i))
+        };
         async move {
             let params = CreateArticleParams {
                 title,
@@ -90,31 +94,34 @@ pub fn CreateArticle() -> impl IntoView {
                                 set_title.update(|v| *v = val);
                             }
                         />
-                        <input
-                            class="w-full input"
-                            type="text"
-                            list="instances"
+                        <select
+                            class="select select-bordered"
                             required
-                            placeholder="Select Instance"
-                            prop:disabled=move || wait_for_response.get()
-                            on:keyup=move |ev| {
-                                let val = event_target_value(&ev);
-                                set_instance.update(|v| *v = val);
+                            on:change:target=move |ev| {
+                                set_instance.set(
+                                    match ev.target().value().parse::<i32>().unwrap_or(-1) {
+                                        -1 => None,
+                                        i => Some(i)
+                                    }
+                                        
+                                )
                             }
-                        />
-                        <datalist id="instances">
+                            prop:value=move || instance.get()
+                            prop:disabled=move || wait_for_response.get()
+                        >
+                        <option selected value=-1>"Local"</option>
                         {move || {
                             instances
                                 .get()
                                 .map(|a| {
                                     a.into_iter()
-                                        .map(|ref i| {
-                                            view! {<option>{i.domain.to_string()}</option>}
+                                        .map(|ref instance| {
+                                            view! {<option value={instance.id.0}>{instance.domain.to_string()}</option>}
                                         }).collect::<Vec<_>>()
                                 }) 
                 
                         }}
-                        </datalist>
+                        </select>
 
 
                         <EditorView textarea_ref content set_content />

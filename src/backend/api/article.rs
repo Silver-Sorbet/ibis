@@ -56,18 +56,18 @@ pub(in crate::backend::api) async fn create_article(
     params.title = validate_article_title(&params.title)?;
     validate_not_empty(&params.text)?;
 
-    let local_instance = DbInstance::read_local(&context)?;
+    let instance = DbInstance::read_local(&context)?;
     let ap_id = ObjectId::parse(&format!(
         "{}://{}/article/{}",
         http_protocol_str(),
-        extract_domain(&local_instance.ap_id),
+        extract_domain(&instance.ap_id),
         params.title
     ))?;
     let form = DbArticleForm {
         title: params.title,
         text: String::new(),
         ap_id,
-        instance_id: local_instance.id,
+        instance_id: instance.id,
         local: true,
         protected: false,
         approved: !context.config.options.article_approval,

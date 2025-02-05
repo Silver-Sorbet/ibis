@@ -14,6 +14,10 @@ pub fn validate_article_title(title: &str) -> MyResult<String> {
     Ok(title)
 }
 
+pub fn validate_instance(instance: &str) -> MyResult<String> {
+
+}
+
 pub fn validate_user_name(name: &str) -> MyResult<()> {
     #[allow(clippy::expect_used)]
     static VALID_ACTOR_NAME_REGEX: LazyLock<Regex> =
