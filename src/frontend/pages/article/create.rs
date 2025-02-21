@@ -24,8 +24,7 @@ pub fn CreateArticle() -> impl IntoView {
     let title = title.split_once('@').map(|(t, _)| t).unwrap_or(&title);
     let (title, set_title) = signal(title.to_string());
 
-    let (instance, set_instance) = signal(None::<i32>);
-    set_instance.set(Some(1));  // sets the default instance
+    let (instance, set_instance) = signal(Some(1));
     let textarea_ref = NodeRef::<Textarea>::new();
     let UseTextareaAutosizeReturn {
         content,
