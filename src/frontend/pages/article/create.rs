@@ -25,6 +25,7 @@ pub fn CreateArticle() -> impl IntoView {
     let (title, set_title) = signal(title.to_string());
 
     let (instance, set_instance) = signal(None::<i32>);
+    set_instance.set(Some(1));  // sets the default instance
     let textarea_ref = NodeRef::<Textarea>::new();
     let UseTextareaAutosizeReturn {
         content,
@@ -126,22 +127,12 @@ pub fn CreateArticle() -> impl IntoView {
                                     .flatten()
                                     .map(|instance| -> AnyView {
                                         println!("InstanceId at get: {}", instance.id.0);
-                                        if instance.id.0 == 1 {
-                                            view! {
-                                                <option 
-                                                selected
-                                                value={instance.id.0}>
-                                                {instance.domain.to_string()}
-                                                </option>
-                                            }.into_any()
-                                        } else{
-                                            view! {
-                                                <option 
-                                                value={instance.id.0}>
-                                                {instance.domain.to_string()}
-                                                </option>
-                                            }.into_any()
-                                        }
+                                        view! {
+                                            <option 
+                                            value={instance.id.0}>
+                                            {instance.domain.to_string()}
+                                            </option>
+                                        }.into_any()
                                     }).collect::<Vec<_>>()
                                 }
                             </select>
