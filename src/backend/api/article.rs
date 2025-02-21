@@ -11,7 +11,7 @@ use crate::{
         utils::{
             error::BackendResult,
             generate_article_version,
-            validate::{validate_article_title, validate_not_empty},
+            validate::{validate_article_title, validate_instance, validate_not_empty},
         },
     },
     common::{
@@ -45,8 +45,12 @@ pub(in crate::backend::api) async fn create_article(
 ) -> BackendResult<Json<DbArticleView>> {
     params.title = validate_article_title(&params.title)?;
     validate_not_empty(&params.text)?;
+    
+    let instance = DbInstance::read(
+        validate_instance(&params.instance)?,
+        &context
+    )?;
 
-    let instance = DbInstance::read_local(&context)?;
     let ap_id = ObjectId::parse(&format!(
         "{}://{}/article/{}",
         http_protocol_str(),
@@ -58,7 +62,7 @@ pub(in crate::backend::api) async fn create_article(
         text: String::new(),
         ap_id,
         instance_id: instance.id,
-        local: true,
+        local: matches!(instance.id.0, 0),
         protected: false,
         approved: !context.config.options.article_approval,
     };

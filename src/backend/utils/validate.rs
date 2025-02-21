@@ -2,6 +2,7 @@ use super::error::BackendResult;
 use anyhow::anyhow;
 use regex::Regex;
 use std::sync::LazyLock;
+use crate::common::newtypes::InstanceId;
 
 pub fn validate_article_title(title: &str) -> BackendResult<String> {
     #[expect(clippy::expect_used)]
@@ -47,6 +48,11 @@ pub fn validate_not_empty(text: &str) -> BackendResult<()> {
         return Err(anyhow!("Empty text submitted").into());
     }
     Ok(())
+}
+
+pub fn validate_instance(instance: &Option<InstanceId>) -> BackendResult<InstanceId> {
+    println!("InstanceId at validate: {:#?}", instance);
+    instance.ok_or(anyhow!("Invalid instance").into())
 }
 
 #[test]

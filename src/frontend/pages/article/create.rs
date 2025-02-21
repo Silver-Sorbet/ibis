@@ -4,6 +4,7 @@ use crate::{
     frontend::{
         api::CLIENT,
         components::article_editor::EditorView,
+        components::suspense_error::SuspenseError,
         utils::resources::{config, is_admin},
     },
 };
@@ -36,14 +37,11 @@ pub fn CreateArticle() -> impl IntoView {
     let (wait_for_response, set_wait_for_response) = signal(false);
     let button_is_disabled =
         Signal::derive(move || wait_for_response.get() || summary.get().is_empty());
-    let submit_action = Action::new(move |(title, text, summary, instance): &(String, String, String, Option::<i32>)| {
+    let submit_action = Action::new(move |(title, text, summary, instance): &(String, String, String, Option<i32>)| {
         let title = title.clone();
         let text = text.clone();
         let summary = summary.clone();
-        let instance = match instance {
-            None => None::<InstanceId>,
-            Some(i) => Some(InstanceId(*i))
-        };
+        let instance = (*instance).map(InstanceId);
         async move {
             let params = CreateArticleParams {
                 title,
@@ -71,7 +69,7 @@ pub fn CreateArticle() -> impl IntoView {
 
     let instances = Resource::new(
         move || (),
-        |_| async move { CLIENT.list_instances().await.unwrap() },
+        |_| async move { CLIENT.list_instances().await },
     );
 
     view! {
@@ -101,34 +99,45 @@ pub fn CreateArticle() -> impl IntoView {
                                 set_title.update(|v| *v = val);
                             }
                         />
-                        <select
-                            class="select select-bordered"
-                            required
-                            on:change:target=move |ev| {
-                                set_instance.set(
-                                    match ev.target().value().parse::<i32>().unwrap_or(-1) {
-                                        -1 => None,
-                                        i => Some(i)
-                                    }
-                                        
-                                )
-                            }
-                            prop:value=move || instance.get()
-                            prop:disabled=move || wait_for_response.get()
-                        >
-                        <option selected value=-1>"Local"</option>
-                        {move || {
-                            instances
-                                .get()
-                                .map(|a| {
-                                    a.into_iter()
-                                        .map(|ref instance| {
+                        {move || Suspend::new(async move {
+                            let instances_ = instances.await;
+                            let is_empty = instances_.as_ref().map(|i| i.is_empty()).unwrap_or(true);
+                            view! {
+                                <Show
+                                    when=move || !is_empty
+                                >
+                                    <select
+                                        class="select select-bordered"
+                                        required
+                                        on:change:target=move |ev| {
+                                            let val = ev.target().value().parse::<i32>().unwrap_or(-1);
+                                            println!("InstanceId at get: {val}");
+                                            set_instance.set(
+                                                match val {
+                                                    -1 => None,
+                                                    i => {
+                                                        println!("This is the instance id: {i}");
+                                                        Some(i)
+                                                    }
+                                                }
+                                            )
+                                        }
+                                        prop:value=move || instance.get()
+                                        prop:disabled=move || wait_for_response.get()
+                                    >
+                                    {instances_
+                                        .clone()
+                                        .ok()
+                                        .iter()
+                                        .flatten()
+                                        .map(|instance| {
                                             view! {<option value={instance.id.0}>{instance.domain.to_string()}</option>}
                                         }).collect::<Vec<_>>()
-                                }) 
-                
-                        }}
-                        </select>
+                                    }
+                                    </select>
+                                </Show>
+                            }
+                         })}
 
 
                         <EditorView textarea_ref content set_content />
