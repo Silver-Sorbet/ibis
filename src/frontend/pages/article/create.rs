@@ -67,10 +67,11 @@ pub fn CreateArticle() -> impl IntoView {
     });
     let show_approval_message = Signal::derive(move || config().article_approval && !is_admin());
 
-    let instances = Resource::new(
+    /*let instances = Resource::new(
         move || (),
         |_| async move { CLIENT.list_instances().await },
-    );
+    );*/
+
 
     view! {
         <Title text="Create new Article" />
@@ -99,48 +100,54 @@ pub fn CreateArticle() -> impl IntoView {
                                 set_title.update(|v| *v = val);
                             }
                         />
-                        {move || Suspend::new(async move {
-                            let instances_ = instances.await;
-                            let is_empty = instances_.as_ref().map(|i| i.is_empty()).unwrap_or(true);
-                            view! {
-                                <Show
-                                    when=move || !is_empty
-                                >
-                                    <select
-                                        class="select select-bordered"
-                                        required
-                                        on:change:target=move |ev| {
-                                            let val = ev.target().value().parse::<i32>().unwrap_or(-1);
-                                            println!("InstanceId at get: {val}");
-                                            set_instance.set(
-                                                match val {
-                                                    -1 => None,
-                                                    i => {
-                                                        println!("This is the instance id: {i}");
-                                                        Some(i)
-                                                    }
-                                                }
-                                            )
-                                        }
-                                        prop:value=move || instance.get()
-                                        prop:disabled=move || wait_for_response.get()
-                                    >
-                                    {instances_
-                                        .clone()
-                                        .ok()
-                                        .iter()
-                                        .flatten()
-                                        .map(|instance| {
-                                            view! {<option value={instance.id.0}>{instance.domain.to_string()}</option>}
-                                        }).collect::<Vec<_>>()
+                        <Await
+                            future=CLIENT.list_instances()
+                            let:instances_
+                        >
+                            <select
+                            class="select select-bordered"
+                            required
+                            on:change:target=move |ev| {
+                                let val = ev.target().value().parse::<i32>().unwrap_or(-1);
+                                set_instance.set(
+                                    match val{
+                                        -1 => None,
+                                        i => Some(i)
                                     }
-                                    </select>
-                                </Show>
+                                )
                             }
-                         })}
+                            prop:value=move || instance.get()
+                            prop:disabled=move || wait_for_response.get()
+                            >
+                                {instances_
+                                    .clone()
+                                    .ok()
+                                    .iter()
+                                    .flatten()
+                                    .map(|instance| -> AnyView {
+                                        println!("InstanceId at get: {}", instance.id.0);
+                                        if instance.id.0 == 1 {
+                                            view! {
+                                                <option 
+                                                selected
+                                                value={instance.id.0}>
+                                                {instance.domain.to_string()}
+                                                </option>
+                                            }.into_any()
+                                        } else{
+                                            view! {
+                                                <option 
+                                                value={instance.id.0}>
+                                                {instance.domain.to_string()}
+                                                </option>
+                                            }.into_any()
+                                        }
+                                    }).collect::<Vec<_>>()
+                                }
+                            </select>
+                        </Await>
 
-
-                        <EditorView textarea_ref content set_content />
+                         <EditorView textarea_ref content set_content />
 
                         {move || {
                             create_error
