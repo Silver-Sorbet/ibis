@@ -21,24 +21,32 @@ use crate::{
         utils::error::BackendResult,
     },
     common::{
-        article::{DbEdit, EditView, GetEditList},
+        article::{Edit, EditView, GetEditList},
         instance::SiteView,
-        user::LocalUserView,
+        user::{LocalUserView, Person},
     },
 };
 use activitypub_federation::config::Data;
 use anyhow::anyhow;
-use article::{approve_article, delete_conflict};
+use article::{approve_article, delete_conflict, follow_article};
 use axum::{
-    extract::Query,
+    extract::{rejection::ExtensionRejection, Query},
+    response::IntoResponse,
     routing::{delete, get, patch, post},
     Extension,
     Json,
     Router,
 };
-use axum_macros::debug_handler;
-use instance::{list_instances, update_instance};
-use user::{count_notifications, list_notifications, update_user_profile};
+use axum_macros::{debug_handler, FromRequestParts};
+use http::StatusCode;
+use instance::{list_instance_views, list_instances, update_instance};
+use std::ops::Deref;
+use user::{
+    article_notif_mark_as_read,
+    count_notifications,
+    list_notifications,
+    update_user_profile,
+};
 
 mod article;
 mod comment;
@@ -56,6 +64,7 @@ pub fn api_routes() -> Router<()> {
         .route("/article/resolve", get(resolve_article))
         .route("/article/protect", post(protect_article))
         .route("/article/approve", post(approve_article))
+        .route("/article/follow", post(follow_article))
         .route("/edit/list", get(edit_list))
         .route("/conflict", get(get_conflict))
         .route("/conflict", delete(delete_conflict))
@@ -65,11 +74,17 @@ pub fn api_routes() -> Router<()> {
         .route("/instance", patch(update_instance))
         .route("/instance/follow", post(follow_instance))
         .route("/instance/resolve", get(resolve_instance))
+        // TODO: deprecated, remove in 0.3
         .route("/instance/list", get(list_instances))
+        .route("/instance/list_views", get(list_instance_views))
         .route("/search", get(search_article))
         .route("/user", get(get_user))
         .route("/user/notifications/list", get(list_notifications))
         .route("/user/notifications/count", get(count_notifications))
+        .route(
+            "/user/notifications/mark_as_read",
+            post(article_notif_mark_as_read),
+        )
         .route("/account/register", post(register_user))
         .route("/account/login", post(login_user))
         .route("/account/logout", post(logout_user))
@@ -77,7 +92,7 @@ pub fn api_routes() -> Router<()> {
         .route("/site", get(site_view))
 }
 
-fn check_is_admin(user: &LocalUserView) -> BackendResult<()> {
+pub fn check_is_admin(user: &LocalUserView) -> BackendResult<()> {
     if !user.local_user.admin {
         return Err(anyhow!("Only admin can perform this action").into());
     }
@@ -87,11 +102,12 @@ fn check_is_admin(user: &LocalUserView) -> BackendResult<()> {
 #[debug_handler]
 pub(in crate::backend::api) async fn site_view(
     context: Data<IbisContext>,
-    user: Option<Extension<LocalUserView>>,
+    user: Option<UserExt>,
 ) -> BackendResult<Json<SiteView>> {
     Ok(Json(SiteView {
-        my_profile: user.map(|u| u.0),
+        my_profile: user.map(|u| u.inner()),
         config: context.config.options.clone(),
+        admin: Person::read_admin(&context)?,
     }))
 }
 
@@ -99,7 +115,7 @@ pub(in crate::backend::api) async fn site_view(
 #[debug_handler]
 pub async fn edit_list(
     Query(query): Query<GetEditList>,
-    user: Option<Extension<LocalUserView>>,
+    user: Option<UserExt>,
     context: Data<IbisContext>,
 ) -> BackendResult<Json<Vec<EditView>>> {
     let params = if let Some(article_id) = query.article_id {
@@ -109,10 +125,51 @@ pub async fn edit_list(
     } else {
         return Err(anyhow!("Must provide article_id or person_id").into());
     };
-    Ok(Json(DbEdit::view(params, &user.map(|u| u.0), &context)?))
+    Ok(Json(Edit::view(
+        params,
+        &user.map(|u| u.inner()),
+        &context,
+    )?))
 }
 
 /// Trims the string param, and converts to None if it is empty
 fn empty_to_none(val: &mut Option<String>) {
-    (*val) = val.as_ref().map(|s| s.trim().to_owned());
+    if let Some(val_) = val {
+        *val_ = val_.trim().to_string();
+        if val_.is_empty() {
+            *val = None
+        }
+    }
+}
+
+#[derive(FromRequestParts)]
+#[from_request(rejection(NotLoggedInError))]
+pub struct UserExt {
+    #[from_request(via(Extension))]
+    local_user_view: LocalUserView,
+}
+
+impl UserExt {
+    pub fn inner(self) -> LocalUserView {
+        self.local_user_view
+    }
+}
+impl Deref for UserExt {
+    type Target = LocalUserView;
+
+    fn deref(&self) -> &Self::Target {
+        &self.local_user_view
+    }
+}
+impl From<ExtensionRejection> for NotLoggedInError {
+    fn from(_: ExtensionRejection) -> Self {
+        NotLoggedInError
+    }
+}
+pub struct NotLoggedInError;
+
+impl IntoResponse for NotLoggedInError {
+    fn into_response(self) -> axum::response::Response {
+        (StatusCode::FORBIDDEN, "Login required").into_response()
+    }
 }

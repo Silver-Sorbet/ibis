@@ -2,12 +2,11 @@ pub mod article;
 pub mod comment;
 pub mod instance;
 pub mod newtypes;
+pub mod notifications;
 pub mod user;
 pub mod utils;
 pub mod validation;
 
-use article::{ApiConflict, DbArticle};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -33,19 +32,4 @@ impl Default for SuccessResponse {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct ResolveObjectParams {
     pub id: Url,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum Notification {
-    EditConflict(ApiConflict),
-    ArticleApprovalRequired(DbArticle),
-}
-
-impl Notification {
-    pub fn published(&self) -> &DateTime<Utc> {
-        match self {
-            Notification::EditConflict(api_conflict) => &api_conflict.published,
-            Notification::ArticleApprovalRequired(db_article) => &db_article.published,
-        }
-    }
 }

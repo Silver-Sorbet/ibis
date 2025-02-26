@@ -1,27 +1,29 @@
 use crate::{
     backend::{
         database::{
-            schema::{article, edit, instance},
+            schema::{article, article_follow, edit, instance},
             IbisContext,
         },
         federation::objects::edits_collection::DbEditCollection,
         utils::error::BackendResult,
     },
     common::{
-        article::{DbArticle, DbArticleView, EditVersion},
-        comment::DbComment,
-        instance::DbInstance,
+        article::{Article, ArticleView, EditVersion},
+        comment::Comment,
         newtypes::{ArticleId, InstanceId},
+        user::LocalUserView,
     },
 };
 use activitypub_federation::fetch::{collection_id::CollectionId, object_id::ObjectId};
 use diesel::{
-    dsl::max,
+    dsl::{delete, max},
     insert_into,
     AsChangeset,
     BoolExpressionMethods,
     ExpressionMethods,
     Insertable,
+    JoinOnDsl,
+    NullableExpressionMethods,
     PgTextExpressionMethods,
     QueryDsl,
     RunQueryDsl,
@@ -33,15 +35,31 @@ use std::ops::DerefMut;
 pub struct DbArticleForm {
     pub title: String,
     pub text: String,
-    pub ap_id: ObjectId<DbArticle>,
+    pub ap_id: ObjectId<Article>,
     pub instance_id: InstanceId,
     pub local: bool,
     pub protected: bool,
     pub approved: bool,
 }
 
-// TODO: get rid of unnecessary methods
-impl DbArticle {
+#[derive(Debug)]
+pub enum ArticleViewQuery<'a> {
+    Id(ArticleId),
+    Name(&'a str, Option<String>),
+}
+
+impl From<ArticleId> for ArticleViewQuery<'_> {
+    fn from(val: ArticleId) -> Self {
+        ArticleViewQuery::Id(val)
+    }
+}
+impl<'a> From<(&'a String, Option<String>)> for ArticleViewQuery<'a> {
+    fn from(val: (&'a String, Option<String>)) -> Self {
+        ArticleViewQuery::Name(val.0, val.1)
+    }
+}
+
+impl Article {
     pub fn edits_id(&self) -> BackendResult<CollectionId<DbEditCollection>> {
         Ok(CollectionId::parse(&format!("{}/edits", self.ap_id))?)
     }
@@ -104,53 +122,53 @@ impl DbArticle {
             .get_result::<Self>(conn.deref_mut())?)
     }
 
-    pub fn read_view(id: ArticleId, context: &IbisContext) -> BackendResult<DbArticleView> {
-        let mut conn = context.db_pool.get()?;
-        let query = article::table
-            .find(id)
-            .inner_join(instance::table)
-            .into_boxed();
-        let (article, instance): (DbArticle, DbInstance) = query.get_result(conn.deref_mut())?;
-        let comments = DbComment::read_for_article(article.id, context)?;
-        let latest_version = article.latest_edit_version(context)?;
-        Ok(DbArticleView {
-            article,
-            instance,
-            comments,
-            latest_version,
-        })
-    }
-
-    pub fn read_view_title(
-        title: &str,
-        domain: Option<String>,
+    pub fn read_view<'a>(
+        params: impl Into<ArticleViewQuery<'a>>,
+        user: Option<&LocalUserView>,
         context: &IbisContext,
-    ) -> BackendResult<DbArticleView> {
+    ) -> BackendResult<ArticleView> {
         let mut conn = context.db_pool.get()?;
-        let (article, instance): (DbArticle, DbInstance) = {
-            let query = article::table
-                .inner_join(instance::table)
-                .filter(article::dsl::title.eq(title))
-                .into_boxed();
-            let query = if let Some(domain) = domain {
-                query.filter(instance::dsl::domain.eq(domain))
-            } else {
-                query.filter(article::dsl::local.eq(true))
-            };
-            query.get_result(conn.deref_mut())?
+        let local_user_id = user.map(|u| u.local_user.id);
+        let mut query = article::table
+            .inner_join(instance::table)
+            .left_join(
+                article_follow::table.on(article_follow::article_id
+                    .eq(article::id)
+                    .and(article_follow::local_user_id.nullable().eq(local_user_id))),
+            )
+            .into_boxed();
+        query = match params.into() {
+            ArticleViewQuery::Id(id) => query.filter(article::id.eq(id)),
+            ArticleViewQuery::Name(title, domain) => {
+                query = query.filter(article::dsl::title.eq(title));
+                if let Some(domain) = domain {
+                    query.filter(instance::dsl::domain.eq(domain))
+                } else {
+                    query.filter(article::dsl::local.eq(true))
+                }
+            }
         };
-        let comments = DbComment::read_for_article(article.id, context)?;
+
+        let (article, instance, following): (Article, _, _) = query
+            .select((
+                article::all_columns,
+                instance::all_columns,
+                article_follow::local_user_id.nullable().is_not_null(),
+            ))
+            .get_result(conn.deref_mut())?;
+        let comments = Comment::read_for_article(article.id, context)?;
         let latest_version = article.latest_edit_version(context)?;
-        Ok(DbArticleView {
+        Ok(ArticleView {
             article,
             instance,
             comments,
             latest_version,
+            following,
         })
     }
 
     pub fn read_from_ap_id(
-        ap_id: &ObjectId<DbArticle>,
+        ap_id: &ObjectId<Article>,
         context: &IbisContext,
     ) -> BackendResult<Self> {
         let mut conn = context.db_pool.get()?;
@@ -217,14 +235,38 @@ impl DbArticle {
         }
     }
 
-    pub fn list_approval_required(context: &IbisContext) -> BackendResult<Vec<Self>> {
+    pub fn follow(
+        article_id_: ArticleId,
+        follower: &LocalUserView,
+        context: &IbisContext,
+    ) -> BackendResult<()> {
+        use article_follow::dsl::{article_id, local_user_id};
         let mut conn = context.db_pool.get()?;
-        let query = article::table
-            .group_by(article::dsl::id)
-            .filter(article::dsl::approved.eq(false))
-            .select(article::all_columns)
-            .into_boxed();
+        let form = (
+            article_id.eq(article_id_),
+            local_user_id.eq(follower.local_user.id),
+        );
+        insert_into(article_follow::table)
+            .values(form)
+            .execute(conn.deref_mut())?;
+        Ok(())
+    }
 
-        Ok(query.get_results(&mut conn)?)
+    pub fn unfollow(
+        article_id_: ArticleId,
+        follower: &LocalUserView,
+        context: &IbisContext,
+    ) -> BackendResult<()> {
+        use article_follow::dsl::{article_id, local_user_id};
+        let mut conn = context.db_pool.get()?;
+        delete(
+            article_follow::table.filter(
+                article_id
+                    .eq(article_id_)
+                    .and(local_user_id.eq(follower.local_user.id)),
+            ),
+        )
+        .execute(conn.deref_mut())?;
+        Ok(())
     }
 }

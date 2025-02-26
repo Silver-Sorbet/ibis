@@ -19,11 +19,26 @@ fn active_counts(pool: &DbPool) -> BackendResult<()> {
     info!("Updating active user count");
     let mut conn = pool.get()?;
 
-    sql_query("update instance_stats set users_active_month = (select * from instance_stats_activity('1 month'))")
+    let rows = sql_query("update instance_stats set users_active_month = (select * from instance_stats_activity('1 month'))")
         .execute(&mut conn)?;
-    sql_query("update instance_stats set users_active_half_year = (select * from instance_stats_activity('6 months'))")
+    debug_assert_eq!(1, rows);
+    let rows = sql_query("update instance_stats set users_active_half_year = (select * from instance_stats_activity('6 months'))")
         .execute(&mut conn)?;
+    debug_assert_eq!(1, rows);
 
     info!("Done with active user count");
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::backend::{IbisConfig, IbisContext};
+
+    #[test]
+    fn test_scheduled_tasks() -> BackendResult<()> {
+        let context = IbisContext::init(IbisConfig::read()?, false)?;
+        active_counts(&context.db_pool)?;
+        Ok(())
+    }
 }

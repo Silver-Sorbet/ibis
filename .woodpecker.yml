@@ -1,7 +1,7 @@
 variables:
   - &rust_image "rust:1.84"
   - &install_binstall "wget https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz && tar -xvf cargo-binstall-x86_64-unknown-linux-musl.tgz && cp cargo-binstall /usr/local/cargo/bin"
-  - &install_cargo_leptos "cargo-binstall -y cargo-leptos@0.2.24"
+  - &install_cargo_leptos "cargo-binstall -y cargo-leptos@0.2.26"
 
 steps:
   cargo_fmt:
@@ -44,9 +44,7 @@ steps:
     environment:
       DATABASE_URL: postgres://ibis:password@database:5432/ibis
     commands:
-      - diesel migration run
-      - diesel print-schema --config-file=diesel.toml > tmp.schema
-      - diff tmp.schema src/backend/database/schema.rs
+      - diesel migration run --locked-schema
 
   cargo_clippy:
     image: *rust_image
@@ -77,7 +75,8 @@ steps:
       - chown testuser:testuser . -R
       - chown testuser:testuser /home/testuser -R
       - export PATH="/usr/lib/postgresql/15/bin:/usr/local/cargo/bin:$PATH"
-      - sudo -u testuser env "PATH=$PATH" "CARGO_HOME=$CARGO_HOME" cargo test --no-fail-fast
+      - export DATABASE_URL="postgres://ibis:password@database:5432/ibis"
+      - sudo -u testuser env "PATH=$PATH" "CARGO_HOME=$CARGO_HOME" "DATABASE_URL=$DATABASE_URL" cargo test --no-fail-fast
 
   build_release:
     image: *rust_image

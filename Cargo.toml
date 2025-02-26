@@ -1,6 +1,6 @@
 [package]
 name = "ibis"
-version = "0.2.1"
+version = "0.2.4"
 edition = "2021"
 
 [features]
@@ -59,24 +59,35 @@ markdown-it-heading-anchors = "0.3.0"
 markdown-it-footnote = "0.2.0"
 markdown-it-sub = "1.0.1"
 markdown-it-sup = "1.0.1"
-leptos-use = "0.15.5"
+leptos-use = { version = "0.15.5", features = [
+  "use_textarea_autosize",
+  "use_cookie",
+  "use_preferred_dark",
+], default-features = false }
 codee = "0.2.0"
+# When changing this make sure to adjust the version of cargo-leptos in .woodpecker.yml
 wasm-bindgen = "=0.2.100"
 gloo-net = "0.6.0"
 console_log = "1.0.0"
 send_wrapper = "0.6.0"
-web-sys = "0.3.77"
+web-sys = { version = "0.3.77", default-features = false }
 http = "1.2.0"
 serde_urlencoded = "0.7.1"
 github-slugger = "0.1.0"
 timeago = "0.4.2"
+phosphor-leptos = { version = "0.7.0", features = [
+  "system",
+  "communication",
+  "office",
+  "arrows",
+], default-features = false }
 
 # backend-only deps
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 axum = "0.7.9"
 axum-macros = "0.4.2"
 axum-extra = { version = "0.9.6", features = ["cookie"] }
-tokio = { version = "1.43.0", features = ["full"] }
+tokio = { version = "1.43.0", default-features = false }
 tower-http = { version = "0.6.2", features = [
   "cors",
   "fs",
@@ -113,6 +124,7 @@ mime_guess = "2.0.5"
 clokwerk = "0.4.0"
 fmtm = "0.0.3"
 regex = "1.11.1"
+moka = { version = "0.12.10", features = ["sync"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

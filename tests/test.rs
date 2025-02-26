@@ -6,8 +6,8 @@ use crate::common::{TestData, TEST_ARTICLE_DEFAULT_TEXT};
 use anyhow::Result;
 use ibis::common::{
     article::{
+        ArticleView,
         CreateArticleParams,
-        DbArticleView,
         EditArticleParams,
         ForkArticleParams,
         GetArticleParams,
@@ -16,9 +16,9 @@ use ibis::common::{
         SearchArticleParams,
     },
     comment::{CreateCommentParams, EditCommentParams},
+    notifications::ApiNotification,
     user::{GetUserParams, LoginUserParams, RegisterUserParams},
     utils::extract_domain,
-    Notification,
 };
 use pretty_assertions::{assert_eq, assert_ne};
 use retry_future::{LinearRetryStrategy, RetryFuture, RetryPolicy};
@@ -27,7 +27,7 @@ use tokio::time::sleep;
 use url::Url;
 
 #[tokio::test]
-async fn test_create_read_and_edit_local_article() -> Result<()> {
+async fn api_test_create_read_and_edit_local_article() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(false).await;
 
     // create article
@@ -95,7 +95,7 @@ async fn test_create_read_and_edit_local_article() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_create_duplicate_article() -> Result<()> {
+async fn api_test_create_duplicate_article() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(false).await;
 
     // create article
@@ -116,7 +116,7 @@ async fn test_create_duplicate_article() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_follow_instance() -> Result<()> {
+async fn api_test_follow_instance() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(false).await;
 
     // check initial state
@@ -143,7 +143,7 @@ async fn test_follow_instance() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_synchronize_articles() -> Result<()> {
+async fn api_test_synchronize_articles() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(false).await;
 
     // create article on alpha
@@ -221,7 +221,7 @@ async fn test_synchronize_articles() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_edit_local_article() -> Result<()> {
+async fn api_test_edit_local_article() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(false).await;
 
     let beta_instance = alpha
@@ -285,7 +285,7 @@ async fn test_edit_local_article() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_edit_remote_article() -> Result<()> {
+async fn api_test_edit_remote_article() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(false).await;
 
     let beta_id_on_alpha = alpha
@@ -373,7 +373,7 @@ async fn test_edit_remote_article() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_local_edit_conflict() -> Result<()> {
+async fn api_test_local_edit_conflict() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(false).await;
 
     // create new article
@@ -416,7 +416,7 @@ async fn test_local_edit_conflict() -> Result<()> {
 
     let notifications = alpha.notifications_list().await.unwrap();
     assert_eq!(1, notifications.len());
-    let Notification::EditConflict(conflict) = &notifications[0] else {
+    let ApiNotification::EditConflict(conflict) = &notifications[0] else {
         panic!()
     };
     assert_eq!(conflict, &edit_res);
@@ -440,7 +440,7 @@ async fn test_local_edit_conflict() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_federated_edit_conflict() -> Result<()> {
+async fn api_test_federated_edit_conflict() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(false).await;
 
     let beta_id_on_alpha = alpha
@@ -461,7 +461,7 @@ async fn test_federated_edit_conflict() -> Result<()> {
     assert!(create_res.article.local);
 
     // fetch article to gamma
-    let resolve_res: DbArticleView = gamma
+    let resolve_res: ArticleView = gamma
         .resolve_article(create_res.article.ap_id.inner().clone())
         .await
         .unwrap();
@@ -479,7 +479,7 @@ async fn test_federated_edit_conflict() -> Result<()> {
     assert_eq!(&beta_edits[0].edit.hash, &alpha_edits[0].edit.hash);
     let edit_params = EditArticleParams {
         article_id: get_res.article.id,
-        new_text: "Lorem Ipsum\n".to_string(),
+        new_text: "first edit\n".to_string(),
         summary: "first edit".to_string(),
         previous_version_id: create_res.latest_version.clone(),
         resolve_conflict_id: None,
@@ -502,7 +502,7 @@ async fn test_federated_edit_conflict() -> Result<()> {
     // not be updated with this conflicting version, instead user needs to handle the conflict
     let edit_params = EditArticleParams {
         article_id: resolve_res.article.id,
-        new_text: "aaaa\n".to_string(),
+        new_text: "second edit\n".to_string(),
         summary: "second edit".to_string(),
         previous_version_id: create_res.latest_version,
         resolve_conflict_id: None,
@@ -513,21 +513,21 @@ async fn test_federated_edit_conflict() -> Result<()> {
         .unwrap();
     let gamma_edits = gamma.get_article_edits(edit_res.article.id).await.unwrap();
     assert_ne!(edit_params.new_text, edit_res.article.text);
-    assert_eq!(2, gamma_edits.len());
-    assert!(gamma_edits[1].edit.pending);
+    assert_eq!(3, gamma_edits.len());
+    assert!(gamma_edits[2].edit.pending);
     assert!(!edit_res.article.local);
 
     assert_eq!(1, gamma.notifications_count().await.unwrap());
     let notifications = gamma.notifications_list().await.unwrap();
     assert_eq!(1, notifications.len());
-    let Notification::EditConflict(conflict) = &notifications[0] else {
+    let ApiNotification::EditConflict(conflict) = &notifications[0] else {
         panic!()
     };
 
     // resolve the conflict
     let edit_params = EditArticleParams {
         article_id: resolve_res.article.id,
-        new_text: "aaaa\n".to_string(),
+        new_text: "second edit\n".to_string(),
         summary: "resolve conflict".to_string(),
         previous_version_id: conflict.previous_version_id.clone(),
         resolve_conflict_id: Some(conflict.id),
@@ -549,7 +549,7 @@ async fn test_federated_edit_conflict() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_overlapping_edits_no_conflict() -> Result<()> {
+async fn api_test_overlapping_edits_no_conflict() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(false).await;
 
     // Create new article
@@ -624,7 +624,7 @@ async fn test_overlapping_edits_no_conflict() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_fork_article() -> Result<()> {
+async fn api_test_fork_article() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(false).await;
 
     // create article
@@ -683,7 +683,7 @@ async fn test_fork_article() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_user_registration_login() -> Result<()> {
+async fn api_test_user_registration_login() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(false).await;
     let username = "my_user";
     let password = "hunter2";
@@ -718,7 +718,7 @@ async fn test_user_registration_login() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_user_profile() -> Result<()> {
+async fn api_test_user_profile() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(false).await;
 
     // Create an article and federate it, in order to federate the user who created it
@@ -747,7 +747,7 @@ async fn test_user_profile() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_lock_article() -> Result<()> {
+async fn api_test_lock_article() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(false).await;
 
     // create article
@@ -777,7 +777,7 @@ async fn test_lock_article() -> Result<()> {
     let lock_res = alpha.protect_article(&lock_params).await.unwrap();
     assert!(lock_res.protected);
 
-    let resolve_res: DbArticleView = gamma
+    let resolve_res: ArticleView = gamma
         .resolve_article(create_res.article.ap_id.inner().clone())
         .await
         .unwrap();
@@ -795,7 +795,7 @@ async fn test_lock_article() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_synchronize_instances() -> Result<()> {
+async fn api_test_synchronize_instances() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(false).await;
 
     // fetch alpha instance on beta
@@ -827,13 +827,15 @@ async fn test_synchronize_instances() -> Result<()> {
 
     // now gamma also knows about alpha
     assert_eq!(3, gamma_instances.len());
-    assert!(gamma_instances.iter().any(|i| i.domain == alpha.hostname));
+    assert!(gamma_instances
+        .iter()
+        .any(|i| i.instance.domain == alpha.hostname));
 
     TestData::stop(alpha, beta, gamma)
 }
 
 #[tokio::test]
-async fn test_article_approval_required() -> Result<()> {
+async fn api_test_article_approval_required() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(true).await;
 
     // create article
@@ -860,7 +862,7 @@ async fn test_article_approval_required() -> Result<()> {
     assert_eq!(1, alpha.notifications_count().await.unwrap());
     let notifications = alpha.notifications_list().await.unwrap();
     assert_eq!(1, notifications.len());
-    let Notification::ArticleApprovalRequired(notif) = &notifications[0] else {
+    let ApiNotification::ArticleApprovalRequired(notif) = &notifications[0] else {
         panic!()
     };
     assert_eq!(create_res.article.id, notif.id);
@@ -882,7 +884,7 @@ async fn test_article_approval_required() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_comment_create_edit() -> Result<()> {
+async fn api_test_comment_create_edit() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(true).await;
 
     beta.follow_instance_with_resolve(&alpha.hostname)
@@ -965,7 +967,7 @@ async fn test_comment_create_edit() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_comment_delete_restore() -> Result<()> {
+async fn api_test_comment_delete_restore() -> Result<()> {
     let TestData(alpha, beta, gamma) = TestData::start(true).await;
 
     beta.follow_instance_with_resolve(&alpha.hostname)

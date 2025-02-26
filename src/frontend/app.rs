@@ -11,8 +11,13 @@ use crate::frontend::{
             history::ArticleHistory,
             read::ReadArticle,
         },
-        explore::Explore,
-        instance::{details::InstanceDetails, search::Search, settings::InstanceSettings},
+        instance::{
+            about::About,
+            details::InstanceDetails,
+            explore::Explore,
+            search::Search,
+            settings::InstanceSettings,
+        },
         user::{
             edit_profile::UserEditProfile,
             login::Login,
@@ -104,6 +109,7 @@ pub fn App() -> impl IntoView {
                         <IbisProtectedRoute path=path!("/create-article") view=CreateArticle />
                         <Route path=path!("/explore") view=Explore />
                         <Route path=path!("/instance/:hostname") view=InstanceDetails />
+                        <Route path=path!("/about") view=About />
                         <Route path=path!("/user/:name") view=UserProfile />
                         <Route path=path!("/login") view=Login />
                         <Route path=path!("/register") view=Register />

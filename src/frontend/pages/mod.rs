@@ -1,7 +1,7 @@
 use super::utils::errors::FrontendResult;
 use crate::{
     common::{
-        article::{DbArticleView, EditView, GetArticleParams},
+        article::{ArticleView, EditView, GetArticleParams},
         MAIN_PAGE_NAME,
     },
     frontend::api::CLIENT,
@@ -10,7 +10,6 @@ use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
 pub mod article;
-pub mod explore;
 pub mod instance;
 pub mod user;
 
@@ -19,7 +18,7 @@ pub fn article_title_param() -> Option<String> {
     params.get().get("title").clone()
 }
 
-fn article_resource() -> Resource<FrontendResult<DbArticleView>> {
+fn article_resource() -> Resource<FrontendResult<ArticleView>> {
     Resource::new(article_title_param, move |title| async move {
         let mut title = title.unwrap_or(MAIN_PAGE_NAME.to_string());
         let mut domain = None;
@@ -37,14 +36,15 @@ fn article_resource() -> Resource<FrontendResult<DbArticleView>> {
     })
 }
 
-fn article_edits_resource(
-    article: Resource<FrontendResult<DbArticleView>>,
+async fn article_edits_resource(
+    article: Resource<FrontendResult<ArticleView>>,
 ) -> Resource<FrontendResult<Vec<EditView>>> {
+    let id = article.await.map(|a| a.article.id);
     Resource::new(
         move || article.get(),
-        move |_| async move {
-            let id = article.await.map(|a| a.article.id)?;
-            CLIENT.get_article_edits(id).await
+        move |_| {
+            let id = id.clone();
+            async move { CLIENT.get_article_edits(id?).await }
         },
     )
 }

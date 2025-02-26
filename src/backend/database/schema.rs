@@ -16,6 +16,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    article_follow (local_user_id, article_id) {
+        local_user_id -> Int4,
+        article_id -> Int4,
+    }
+}
+
+diesel::table! {
     comment (id) {
         id -> Int4,
         creator_id -> Int4,
@@ -93,12 +100,12 @@ diesel::table! {
 
 diesel::table! {
     instance_stats (id) {
-        id -> Int4,
         users -> Int4,
         users_active_month -> Int4,
         users_active_half_year -> Int4,
         articles -> Int4,
         comments -> Int4,
+        id -> Int4,
     }
 }
 
@@ -115,6 +122,18 @@ diesel::table! {
         password_encrypted -> Text,
         person_id -> Int4,
         admin -> Bool,
+    }
+}
+
+diesel::table! {
+    notification (id) {
+        id -> Int4,
+        local_user_id -> Int4,
+        article_id -> Int4,
+        creator_id -> Int4,
+        comment_id -> Nullable<Int4>,
+        edit_id -> Nullable<Int4>,
+        published -> Timestamptz,
     }
 }
 
@@ -138,6 +157,8 @@ diesel::table! {
 }
 
 diesel::joinable!(article -> instance (instance_id));
+diesel::joinable!(article_follow -> article (article_id));
+diesel::joinable!(article_follow -> local_user (local_user_id));
 diesel::joinable!(comment -> article (article_id));
 diesel::joinable!(comment -> person (creator_id));
 diesel::joinable!(conflict -> article (article_id));
@@ -147,9 +168,15 @@ diesel::joinable!(edit -> person (creator_id));
 diesel::joinable!(instance_follow -> instance (instance_id));
 diesel::joinable!(instance_follow -> person (follower_id));
 diesel::joinable!(local_user -> person (person_id));
+diesel::joinable!(notification -> article (article_id));
+diesel::joinable!(notification -> comment (comment_id));
+diesel::joinable!(notification -> edit (edit_id));
+diesel::joinable!(notification -> local_user (local_user_id));
+diesel::joinable!(notification -> person (creator_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     article,
+    article_follow,
     comment,
     conflict,
     edit,
@@ -158,5 +185,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     instance_stats,
     jwt_secret,
     local_user,
+    notification,
     person,
 );

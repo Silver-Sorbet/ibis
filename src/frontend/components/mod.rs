@@ -8,3 +8,4 @@ pub mod instance_follow_button;
 pub mod nav;
 pub mod protected_route;
 pub mod suspense_error;
+pub mod instance_selector;

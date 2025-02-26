@@ -2,32 +2,41 @@ use super::ApiClient;
 use crate::{
     common::{
         article::{
-            ApiConflict, ApproveArticleParams, CreateArticleParams, DbArticle, DbArticleView,
-            DeleteConflictParams, EditArticleParams, EditView, ForkArticleParams, GetArticleParams,
-            GetConflictParams, GetEditList, ListArticlesParams, ProtectArticleParams,
+            ApiConflict,
+            ApproveArticleParams,
+            Article,
+            ArticleView,
+            CreateArticleParams,
+            DeleteConflictParams,
+            EditArticleParams,
+            EditView,
+            FollowArticleParams,
+            ForkArticleParams,
+            GetArticleParams,
+            GetConflictParams,
+            GetEditList,
+            ListArticlesParams,
+            ProtectArticleParams,
         },
         newtypes::{ArticleId, ConflictId},
         ResolveObjectParams,
+        SuccessResponse,
     },
     frontend::utils::errors::FrontendResult,
 };
 use http::Method;
-use log::error;
 use url::Url;
 
 impl ApiClient {
-    pub async fn create_article(
-        &self,
-        data: &CreateArticleParams,
-    ) -> FrontendResult<DbArticleView> {
+    pub async fn create_article(&self, data: &CreateArticleParams) -> FrontendResult<ArticleView> {
         self.post("/api/v1/article", Some(&data)).await
     }
 
-    pub async fn get_article(&self, data: GetArticleParams) -> FrontendResult<DbArticleView> {
+    pub async fn get_article(&self, data: GetArticleParams) -> FrontendResult<ArticleView> {
         self.send(Method::GET, "/api/v1/article", Some(data)).await
     }
 
-    pub async fn list_articles(&self, data: ListArticlesParams) -> FrontendResult<Vec<DbArticle>> {
+    pub async fn list_articles(&self, data: ListArticlesParams) -> FrontendResult<Vec<Article>> {
         self.get("/api/v1/article/list", Some(data)).await
     }
 
@@ -38,18 +47,15 @@ impl ApiClient {
         self.patch("/api/v1/article", Some(&params)).await
     }
 
-    pub async fn fork_article(&self, params: &ForkArticleParams) -> FrontendResult<DbArticleView> {
+    pub async fn fork_article(&self, params: &ForkArticleParams) -> FrontendResult<ArticleView> {
         self.post("/api/v1/article/fork", Some(params)).await
     }
 
-    pub async fn protect_article(
-        &self,
-        params: &ProtectArticleParams,
-    ) -> FrontendResult<DbArticle> {
+    pub async fn protect_article(&self, params: &ProtectArticleParams) -> FrontendResult<Article> {
         self.post("/api/v1/article/protect", Some(params)).await
     }
 
-    pub async fn resolve_article(&self, id: Url) -> FrontendResult<DbArticleView> {
+    pub async fn resolve_article(&self, id: Url) -> FrontendResult<ArticleView> {
         let resolve_object = ResolveObjectParams { id };
         self.send(Method::GET, "/api/v1/article/resolve", Some(resolve_object))
             .await
@@ -87,15 +93,24 @@ impl ApiClient {
             .await
     }
 
+    pub async fn follow_article(
+        &self,
+        id: ArticleId,
+        follow: bool,
+    ) -> FrontendResult<SuccessResponse> {
+        let params = FollowArticleParams { id, follow };
+        self.post("/api/v1/article/follow", Some(params)).await
+    }
+
     #[cfg(debug_assertions)]
     pub async fn edit_article_without_conflict(
         &self,
         params: &EditArticleParams,
-    ) -> Option<DbArticleView> {
+    ) -> Option<ArticleView> {
         let edit_res = self
             .edit_article(params)
             .await
-            .map_err(|e| error!("edit failed {e}"))
+            .map_err(|e| log::error!("edit failed {e}"))
             .ok()?;
         assert_eq!(None, edit_res);
 

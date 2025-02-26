@@ -1,31 +1,41 @@
-use super::{check_is_admin, empty_to_none};
+use super::{empty_to_none, UserExt};
 use crate::{
     backend::{
-        database::{conflict::DbConflict, read_jwt_secret, IbisContext},
+        database::{notifications::Notification, read_jwt_secret, IbisContext},
         utils::{
             error::BackendResult,
             validate::{validate_display_name, validate_user_name},
         },
     },
     common::{
-        article::DbArticle,
+        notifications::{ApiNotification, ArticleNotifMarkAsReadParams},
         user::{
-            DbPerson, GetUserParams, LocalUserView, LoginUserParams, RegisterUserParams,
+            GetUserParams,
+            LocalUserView,
+            LoginUserParams,
+            Person,
+            RegisterUserParams,
             UpdateUserParams,
         },
-        Notification, SuccessResponse, AUTH_COOKIE,
+        SuccessResponse,
+        AUTH_COOKIE,
     },
 };
 use activitypub_federation::config::Data;
 use anyhow::anyhow;
-use axum::{extract::Query, Extension, Form, Json};
+use axum::{extract::Query, Form, Json};
 use axum_extra::extract::cookie::{Cookie, CookieJar, Expiration, SameSite};
 use axum_macros::debug_handler;
 use bcrypt::verify;
 use chrono::Utc;
-use futures::future::try_join_all;
 use jsonwebtoken::{
-    decode, encode, get_current_timestamp, DecodingKey, EncodingKey, Header, Validation,
+    decode,
+    encode,
+    get_current_timestamp,
+    DecodingKey,
+    EncodingKey,
+    Header,
+    Validation,
 };
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
@@ -42,7 +52,7 @@ struct Claims {
     pub exp: u64,
 }
 
-fn generate_login_token(person: &DbPerson, context: &Data<IbisContext>) -> BackendResult<String> {
+fn generate_login_token(person: &Person, context: &Data<IbisContext>) -> BackendResult<String> {
     let hostname = context.domain().to_string();
     let claims = Claims {
         sub: person.username.clone(),
@@ -62,7 +72,7 @@ pub async fn validate(jwt: &str, context: &IbisContext) -> BackendResult<LocalUs
     let secret = read_jwt_secret(context)?;
     let key = DecodingKey::from_secret(secret.as_bytes());
     let claims = decode::<Claims>(jwt, &key, &validation)?;
-    DbPerson::read_local_from_name(&claims.claims.sub, context)
+    Person::read_local_from_name(&claims.claims.sub, context)
 }
 
 #[debug_handler]
@@ -75,7 +85,7 @@ pub(in crate::backend::api) async fn register_user(
         return Err(anyhow!("Registration is closed").into());
     }
     validate_user_name(&params.username)?;
-    let user = DbPerson::create_local(params.username, params.password, false, &context)?;
+    let user = Person::create_local(params.username, params.password, false, &context)?;
     let token = generate_login_token(&user.person, &context)?;
     let jar = jar.add(create_cookie(token, &context));
     Ok((jar, Json(user)))
@@ -87,7 +97,7 @@ pub(in crate::backend::api) async fn login_user(
     jar: CookieJar,
     Form(params): Form<LoginUserParams>,
 ) -> BackendResult<(CookieJar, Json<LocalUserView>)> {
-    let user = DbPerson::read_local_from_name(&params.username, &context)?;
+    let user = Person::read_local_from_name(&params.username, &context)?;
     let valid = verify(&params.password, &user.local_user.password_encrypted)?;
     if !valid {
         return Err(anyhow!("Invalid login").into());
@@ -130,8 +140,8 @@ pub(in crate::backend::api) async fn logout_user(
 pub(in crate::backend::api) async fn get_user(
     params: Query<GetUserParams>,
     context: Data<IbisContext>,
-) -> BackendResult<Json<DbPerson>> {
-    Ok(Json(DbPerson::read_from_name(
+) -> BackendResult<Json<Person>> {
+    Ok(Json(Person::read_from_name(
         &params.name,
         &params.domain,
         &context,
@@ -146,56 +156,36 @@ pub(in crate::backend::api) async fn update_user_profile(
     empty_to_none(&mut params.display_name);
     empty_to_none(&mut params.bio);
     validate_display_name(&params.display_name)?;
-    DbPerson::update_profile(&params, &context)?;
+    Person::update_profile(&params, &context)?;
     Ok(Json(SuccessResponse::default()))
 }
 
 #[debug_handler]
 pub(crate) async fn list_notifications(
-    Extension(user): Extension<LocalUserView>,
+    user: UserExt,
     context: Data<IbisContext>,
-) -> BackendResult<Json<Vec<Notification>>> {
-    let conflicts = DbConflict::list(user.person.id, &context)?;
-    let conflicts: Vec<_> = try_join_all(conflicts.into_iter().map(|c| {
-        let data = context.reset_request_count();
-        async move { c.to_api_conflict(&data).await }
-    }))
-    .await?;
-    let mut notifications: Vec<_> = conflicts
-        .into_iter()
-        .flatten()
-        .map(Notification::EditConflict)
-        .collect();
-
-    if check_is_admin(&user).is_ok() {
-        let articles = DbArticle::list_approval_required(&context)?;
-        notifications.extend(
-            articles
-                .into_iter()
-                .map(Notification::ArticleApprovalRequired),
-        )
-    }
-    notifications.sort_by(|a, b| a.published().cmp(b.published()));
-
-    Ok(Json(notifications))
+) -> BackendResult<Json<Vec<ApiNotification>>> {
+    Ok(Json(Notification::list(&user, &context).await?))
 }
 
 #[debug_handler]
 pub(crate) async fn count_notifications(
-    user: Option<Extension<LocalUserView>>,
+    user: Option<UserExt>,
     context: Data<IbisContext>,
-) -> BackendResult<Json<usize>> {
+) -> BackendResult<Json<i64>> {
     if let Some(user) = user {
-        let mut count = 0;
-        let conflicts = DbConflict::list(user.person.id, &context)?;
-        count += conflicts.len();
-        if check_is_admin(&user).is_ok() {
-            let articles = DbArticle::list_approval_required(&context)?;
-            count += articles.len();
-        }
-
-        Ok(Json(count))
+        Ok(Json(Notification::count(&user, &context)?))
     } else {
         Ok(Json(0))
     }
+}
+
+#[debug_handler]
+pub(crate) async fn article_notif_mark_as_read(
+    user: UserExt,
+    context: Data<IbisContext>,
+    Form(params): Form<ArticleNotifMarkAsReadParams>,
+) -> BackendResult<Json<SuccessResponse>> {
+    Notification::mark_as_read(params.id, &user, &context)?;
+    Ok(Json(SuccessResponse::default()))
 }

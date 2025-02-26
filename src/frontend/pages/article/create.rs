@@ -3,8 +3,10 @@ use crate::{
     common::newtypes::InstanceId,
     frontend::{
         api::CLIENT,
-        components::article_editor::EditorView,
-        components::suspense_error::SuspenseError,
+        components::{
+            article_editor::EditorView, 
+            instance_selector::InstanceSelector
+        },
         utils::resources::{config, is_admin},
     },
 };
@@ -67,12 +69,6 @@ pub fn CreateArticle() -> impl IntoView {
     });
     let show_approval_message = Signal::derive(move || config().article_approval && !is_admin());
 
-    /*let instances = Resource::new(
-        move || (),
-        |_| async move { CLIENT.list_instances().await },
-    );*/
-
-
     view! {
         <Title text="Create new Article" />
         <h1 class="my-4 font-serif text-4xl font-bold">Create new Article</h1>
@@ -100,44 +96,10 @@ pub fn CreateArticle() -> impl IntoView {
                                 set_title.update(|v| *v = val);
                             }
                         />
-                        <Await
-                            future=CLIENT.list_instances()
-                            let:instances_
-                        >
-                            <select
-                            class="select select-bordered"
-                            required
-                            on:change:target=move |ev| {
-                                let val = ev.target().value().parse::<i32>().unwrap_or(-1);
-                                set_instance.set(
-                                    match val{
-                                        -1 => None,
-                                        i => Some(i)
-                                    }
-                                )
-                            }
-                            prop:value=move || instance.get()
-                            prop:disabled=move || wait_for_response.get()
-                            >
-                                {instances_
-                                    .clone()
-                                    .ok()
-                                    .iter()
-                                    .flatten()
-                                    .map(|instance| -> AnyView {
-                                        println!("InstanceId at get: {}", instance.id.0);
-                                        view! {
-                                            <option 
-                                            value={instance.id.0}>
-                                            {instance.domain.to_string()}
-                                            </option>
-                                        }.into_any()
-                                    }).collect::<Vec<_>>()
-                                }
-                            </select>
-                        </Await>
-
-                         <EditorView textarea_ref content set_content />
+                        
+                        <InstanceSelector wait_for_response instance set_instance />
+                        
+                        <EditorView textarea_ref content set_content />
 
                         {move || {
                             create_error
