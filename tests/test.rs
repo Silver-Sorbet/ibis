@@ -36,6 +36,7 @@ async fn test_create_read_and_edit_local_article() -> Result<()> {
         title: "Manu Chao".to_string(),
         text: TEST_ARTICLE_DEFAULT_TEXT.to_string(),
         summary: "create article".to_string(),
+        instance: Some(InstanceId(1)),
     };
     let create_res = alpha.create_article(&create_params).await.unwrap();
     assert_eq!(TITLE, create_res.article.title);
@@ -102,6 +103,7 @@ async fn test_create_duplicate_article() -> Result<()> {
         title: "Manu_Chao".to_string(),
         text: TEST_ARTICLE_DEFAULT_TEXT.to_string(),
         summary: "create article".to_string(),
+        instance: Some(InstanceId(1)),
     };
     let create_res = alpha.create_article(&create_params).await.unwrap();
     assert_eq!(create_params.title, create_res.article.title);
@@ -149,6 +151,7 @@ async fn test_synchronize_articles() -> Result<()> {
         title: "Manu_Chao".to_string(),
         text: TEST_ARTICLE_DEFAULT_TEXT.to_string(),
         summary: "create article".to_string(),
+        instance: Some(InstanceId(1)),
     };
     let create_res = alpha.create_article(&create_params).await.unwrap();
     assert_eq!(create_params.title, create_res.article.title);
@@ -231,6 +234,7 @@ async fn test_edit_local_article() -> Result<()> {
         title: "Manu_Chao".to_string(),
         text: TEST_ARTICLE_DEFAULT_TEXT.to_string(),
         summary: "create article".to_string(),
+        instance: Some(InstanceId(1)),
     };
     let create_res = beta.create_article(&create_params).await.unwrap();
     assert_eq!(create_params.title, create_res.article.title);
@@ -298,6 +302,7 @@ async fn test_edit_remote_article() -> Result<()> {
         title: "Manu_Chao".to_string(),
         text: TEST_ARTICLE_DEFAULT_TEXT.to_string(),
         summary: "create article".to_string(),
+        instance: Some(InstanceId(1)),
     };
     let create_res = beta.create_article(&create_params).await.unwrap();
     assert_eq!(&create_params.title, &create_res.article.title);
@@ -376,6 +381,7 @@ async fn test_local_edit_conflict() -> Result<()> {
         title: "Manu_Chao".to_string(),
         text: TEST_ARTICLE_DEFAULT_TEXT.to_string(),
         summary: "create article".to_string(),
+        instance: Some(InstanceId(1)),
     };
     let create_res = alpha.create_article(&create_params).await.unwrap();
     assert_eq!(create_params.title, create_res.article.title);
@@ -447,6 +453,7 @@ async fn test_federated_edit_conflict() -> Result<()> {
         title: "Manu_Chao".to_string(),
         text: TEST_ARTICLE_DEFAULT_TEXT.to_string(),
         summary: "create article".to_string(),
+        instance: Some(InstanceId(1)),
     };
     let create_res = beta.create_article(&create_params).await.unwrap();
     let beta_edits = beta.get_article_edits(create_res.article.id).await.unwrap();
@@ -557,6 +564,7 @@ async fn test_overlapping_edits_no_conflict() -> Result<()> {
 "#
         .to_string(),
         summary: "create article".to_string(),
+        instance: Some(InstanceId(1)),
     };
     let create_res = alpha.create_article(&create_params).await.unwrap();
     assert_eq!(create_params.title, create_res.article.title);
@@ -624,6 +632,7 @@ async fn test_fork_article() -> Result<()> {
         title: "Manu_Chao".to_string(),
         text: TEST_ARTICLE_DEFAULT_TEXT.to_string(),
         summary: "create article".to_string(),
+        instance: Some(InstanceId(1)),
     };
     let create_res = alpha.create_article(&create_params).await.unwrap();
     let create_edits = alpha
@@ -717,6 +726,7 @@ async fn test_user_profile() -> Result<()> {
         title: "Manu_Chao".to_string(),
         text: TEST_ARTICLE_DEFAULT_TEXT.to_string(),
         summary: "create article".to_string(),
+        instance: Some(InstanceId(1)),
     };
     let create_res = alpha.create_article(&create_params).await.unwrap();
     beta.resolve_article(create_res.article.ap_id.into_inner())
@@ -745,6 +755,7 @@ async fn test_lock_article() -> Result<()> {
         title: "Manu_Chao".to_string(),
         text: TEST_ARTICLE_DEFAULT_TEXT.to_string(),
         summary: "create article".to_string(),
+        instance: Some(InstanceId(1)),
     };
     let create_res = alpha.create_article(&create_params).await.unwrap();
     assert!(!create_res.article.protected);
@@ -830,6 +841,7 @@ async fn test_article_approval_required() -> Result<()> {
         title: "Manu_Chao".to_string(),
         text: TEST_ARTICLE_DEFAULT_TEXT.to_string(),
         summary: "create article".to_string(),
+        instance: Some(InstanceId(1)),
     };
     let create_res = alpha.create_article(&create_params).await.unwrap();
     assert!(!create_res.article.approved);
@@ -886,6 +898,7 @@ async fn test_comment_create_edit() -> Result<()> {
         title: "Manu_Chao".to_string(),
         text: TEST_ARTICLE_DEFAULT_TEXT.to_string(),
         summary: "create article".to_string(),
+        instance: Some(InstanceId(1)),
     };
     let alpha_article = alpha.create_article(&params).await.unwrap();
 
@@ -964,6 +977,7 @@ async fn test_comment_delete_restore() -> Result<()> {
         title: "Manu_Chao".to_string(),
         text: TEST_ARTICLE_DEFAULT_TEXT.to_string(),
         summary: "create article".to_string(),
+        instance: Some(InstanceId(1)),
     };
     let alpha_article = alpha.create_article(&params).await.unwrap();
 
