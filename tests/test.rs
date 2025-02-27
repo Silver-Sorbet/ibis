@@ -5,6 +5,7 @@ mod common;
 use crate::common::{TestData, TEST_ARTICLE_DEFAULT_TEXT};
 use anyhow::Result;
 use ibis::common::{
+    newtypes::InstanceId,
     article::{
         ArticleView,
         CreateArticleParams,
@@ -371,6 +372,59 @@ async fn api_test_edit_remote_article() -> Result<()> {
 
     TestData::stop(alpha, beta, gamma)
 }
+
+#[tokio::test]
+async fn api_test_create_remote_article() -> Result<()> {
+    let TestData(alpha, beta, gamma) = TestData::start(false).await;
+    
+    let beta_id_on_alpha = alpha
+        .follow_instance_with_resolve(&beta.hostname)
+        .await
+        .unwrap();
+    let beta_id_on_gamma = gamma
+        .follow_instance_with_resolve(&beta.hostname)
+        .await
+        .unwrap();
+
+    println!("Beta id on alpha: {:#?}", beta_id_on_alpha.id);
+    println!("Beta id on gamma: {:#?}", beta_id_on_gamma.id);
+    // create article
+    let create_params = CreateArticleParams {
+        title: "Manu_Chao".to_string(),
+        text: TEST_ARTICLE_DEFAULT_TEXT.to_string(),
+        summary: "create article".to_string(),
+        instance: Some(beta_id_on_alpha.id),
+    };
+    let create_res = alpha.create_article(&create_params).await.unwrap();
+    assert_eq!(&create_params.title, &create_res.article.title);
+    assert!(!create_res.article.local);
+
+    let get_article_data_beta = GetArticleParams {
+        title: Some(create_res.article.title.to_string()),
+        domain: None,
+        id: None,
+    };
+
+    let get_article_data_gamma = GetArticleParams {
+        title: Some(create_res.article.title.to_string()),
+        domain: Some(beta_id_on_gamma.domain),
+        id: None,
+    };
+
+
+    // Article should exist on beta
+    let get_res = beta.get_article(get_article_data_beta).await.unwrap();
+    assert_eq!(create_res.article.title, get_res.article.title);
+    assert_eq!(create_res.article.title, get_res.article.text);
+
+    // Article should be federated on gamma
+    let get_res = gamma.get_article(get_article_data_gamma).await.unwrap();
+    assert_eq!(create_res.article.title, get_res.article.title);
+    assert_eq!(create_res.article.text, get_res.article.text);
+
+    TestData::stop(alpha, beta, gamma)
+}
+
 
 #[tokio::test]
 async fn api_test_local_edit_conflict() -> Result<()> {
