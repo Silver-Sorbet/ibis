@@ -16,10 +16,10 @@ use ibis_database::{
         instance::Instance,
     },
     error::BackendError,
-    impls::{IbisContext, article::DbArticleForm},
+    impls::{IbisContext, article::DbArticleForm, notifications::Notification},
 };
 use serde::{Deserialize, Serialize};
-use std::ops::Deref;
+use std::{cmp::Reverse, ops::Deref};
 use url::Url;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -106,12 +106,15 @@ impl Object for ArticleWrapper {
             local: matches!(instance.id.0, 1),
             instance_id: instance.id,
             protected: json.protected,
-            approved: true,
         };
         form.title = validate_article_title(&form.title)?;
         let article = Article::create_or_update(form, context)?;
 
-        json.edits.dereference(&article, context).await?;
+        let mut edits = json.edits.dereference(&article, context).await?.0;
+        edits.sort_by_key(|e| Reverse(e.published));
+        if let Some(edit) = edits.first() {
+            Notification::notify_article(&article, edit.creator_id, context)?;
+        }
 
         Ok(article.into())
     }

@@ -4,7 +4,7 @@
 connection_url = "postgres://ibis:password@localhost:5432/ibis"
 
 # Database connection pool size
-pool_size = 5
+pool_size = 30
 
 # Details of the initial admin account
 [setup]
@@ -26,6 +26,3 @@ blocklist = "evil.com,bad.org"
 [options]
 # Whether users can create new accounts
 registration_open = true
-
-# Whether admins need to approve new articles
-article_approval = false

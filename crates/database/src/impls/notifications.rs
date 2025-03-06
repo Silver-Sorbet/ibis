@@ -2,13 +2,31 @@ use crate::{
     common::{
         article::{Article, Conflict, Edit},
         comment::Comment,
-        newtypes::{ArticleId, ArticleNotifId, CommentId, EditId, LocalUserId, PersonId},
-        notifications::ApiNotification,
+        newtypes::{
+            ArticleId,
+            ArticleNotifId,
+            CommentId,
+            ConflictId,
+            EditId,
+            LocalUserId,
+            PersonId,
+        },
+        notifications::{ApiNotification, ApiNotificationData},
         user::{LocalUserView, Person},
     },
     error::BackendResult,
     impls::IbisContext,
-    schema::{article, article_follow, comment, conflict, edit, local_user, notification, person},
+    schema::{
+        article,
+        article_follow,
+        comment,
+        conflict,
+        edit,
+        instance_follow,
+        local_user,
+        notification,
+        person,
+    },
 };
 use chrono::{DateTime, Utc};
 use diesel::{
@@ -35,16 +53,18 @@ pub struct Notification {
     comment_id: Option<CommentId>,
     edit_id: Option<EditId>,
     pub published: DateTime<Utc>,
+    conflict_id: Option<ConflictId>,
 }
 
 #[derive(Debug, Insertable)]
 #[diesel(table_name = notification, check_for_backend(diesel::pg::Pg))]
-struct NotificationInsertForm {
-    local_user_id: LocalUserId,
-    article_id: ArticleId,
-    creator_id: PersonId,
-    comment_id: Option<CommentId>,
-    edit_id: Option<EditId>,
+pub(crate) struct NotificationInsertForm {
+    pub local_user_id: LocalUserId,
+    pub article_id: ArticleId,
+    pub creator_id: PersonId,
+    pub comment_id: Option<CommentId>,
+    pub edit_id: Option<EditId>,
+    pub conflict_id: Option<ConflictId>,
 }
 
 impl Notification {
@@ -53,85 +73,66 @@ impl Notification {
         context: &IbisContext,
     ) -> BackendResult<Vec<ApiNotification>> {
         let mut conn = context.db_pool.get()?;
-        let mut notifications: Vec<ApiNotification> = vec![];
 
-        // edit conflicts
-        let conflicts: Vec<(Conflict, Article)> = conflict::table
-            .inner_join(article::table)
-            .filter(conflict::dsl::creator_id.eq(user.person.id))
-            .select((conflict::all_columns, article::all_columns))
-            .get_results(conn.deref_mut())?;
-        notifications.extend(
-            conflicts
-                .into_iter()
-                .map(|(c, a)| ApiNotification::EditConflict(c, a)),
-        );
-
-        // new articles requiring approval
-        if user.local_user.admin {
-            let articles = article::table
-                .group_by(article::dsl::id)
-                .filter(article::dsl::approved.eq(false))
-                .select(article::all_columns)
-                .get_results(&mut conn)?
-                .into_iter();
-            notifications.extend(articles.map(ApiNotification::ArticleApprovalRequired))
-        }
-
-        // new edits and comments for followed articles
         let article_notifications = notification::table
             .inner_join(article::table)
             .inner_join(person::table)
             .left_join(comment::table)
             .left_join(edit::table)
+            .left_join(conflict::table)
             .filter(notification::local_user_id.eq(user.local_user.id))
+            .order_by(notification::published.desc())
             .select((
                 notification::all_columns,
                 article::all_columns,
                 person::all_columns,
                 comment::all_columns.nullable(),
                 edit::all_columns.nullable(),
+                conflict::all_columns.nullable(),
             ))
-            .get_results::<(Notification, Article, Person, Option<Comment>, Option<Edit>)>(
-                &mut conn,
-            )?;
-        notifications.extend(article_notifications.into_iter().flat_map(
-            |(notif, article, creator, comment, edit)| {
-                if let Some(c) = comment {
-                    Some(ApiNotification::Comment(notif.id, c, creator, article))
-                } else {
-                    edit.map(|e| ApiNotification::Edit(notif.id, e, creator, article))
-                }
-            },
-        ));
+            .get_results::<(
+                Notification,
+                Article,
+                Person,
+                Option<Comment>,
+                Option<Edit>,
+                Option<Conflict>,
+            )>(&mut conn)?;
 
-        notifications.sort_by(|a, b| b.published().cmp(a.published()));
-        Ok(notifications)
+        Ok(article_notifications
+            .into_iter()
+            .map(|(notif, article, creator, comment, edit, conflict)| {
+                use ApiNotificationData::*;
+                let (published, data) = if let Some(c) = comment {
+                    (c.published, Comment(c))
+                } else if let Some(e) = edit {
+                    (e.published, Edit(e))
+                } else if let Some(c) = conflict {
+                    (
+                        c.published,
+                        EditConflict {
+                            conflict_id: c.id,
+                            summary: c.summary,
+                        },
+                    )
+                } else {
+                    (article.published, ArticleCreated)
+                };
+                ApiNotification {
+                    id: notif.id,
+                    creator,
+                    article,
+                    published,
+                    data,
+                }
+            })
+            .collect())
     }
 
     pub fn count(user: &LocalUserView, context: &IbisContext) -> BackendResult<i64> {
         let mut conn = context.db_pool.get()?;
         let mut num = 0;
-        // edit conflicts
-        let conflicts = conflict::table
-            .filter(conflict::dsl::creator_id.eq(user.person.id))
-            .select(count(conflict::id))
-            .first::<i64>(conn.deref_mut())
-            .unwrap_or(0);
-        num += conflicts;
 
-        // new articles requiring approval
-        if user.local_user.admin {
-            let articles = article::table
-                .group_by(article::dsl::id)
-                .filter(article::dsl::approved.eq(false))
-                .select(count(article::id))
-                .first::<i64>(conn.deref_mut())
-                .unwrap_or(0);
-            num += articles;
-        }
-
-        // new edits and comments for followed articles
         let article_notifications = notification::table
             .filter(notification::local_user_id.eq(user.local_user.id))
             .select(count(notification::id))
@@ -148,12 +149,61 @@ impl Notification {
         context: &IbisContext,
     ) -> BackendResult<()> {
         let mut conn = context.db_pool.get()?;
-        delete(
+        let notif: Notification = delete(
             notification::table
                 .filter(notification::id.eq(id))
                 .filter(notification::local_user_id.eq(user.local_user.id)),
         )
-        .execute(&mut conn)?;
+        .returning(notification::all_columns)
+        .get_result(&mut conn)?;
+
+        // if this is a conflict, delete the conflict as well
+        if let Some(conflict_id) = notif.conflict_id {
+            delete(
+                conflict::table
+                    .filter(conflict::id.eq(conflict_id))
+                    .filter(conflict::creator_id.eq(user.person.id)),
+            )
+            .execute(&mut conn)?;
+        }
+        Ok(())
+    }
+
+    pub fn notify_article(
+        article: &Article,
+        creator_id: PersonId,
+        context: &IbisContext,
+    ) -> BackendResult<()> {
+        let mut conn = context.db_pool.get()?;
+        let followers = instance_follow::table
+            .inner_join(person::table.inner_join(local_user::table))
+            .filter(instance_follow::instance_id.eq(article.instance_id))
+            .select((local_user::person_id, local_user::id))
+            .get_results::<(PersonId, LocalUserId)>(&mut conn)?;
+        let notifs: Vec<_> = followers
+            .into_iter()
+            // exclude creator so he doesnt get notified about his own edit/comment
+            .flat_map(|(person_id, local_user_id)| {
+                if person_id != creator_id {
+                    Some(local_user_id)
+                } else {
+                    None
+                }
+            })
+            .map(|local_user_id| NotificationInsertForm {
+                local_user_id,
+                article_id: article.id,
+                creator_id,
+                comment_id: None,
+                edit_id: None,
+                conflict_id: None,
+            })
+            .collect();
+
+        insert_into(notification::table)
+            .values(&notifs)
+            .on_conflict_do_nothing()
+            .execute(&mut conn)?;
         Ok(())
     }
 
@@ -185,6 +235,7 @@ impl Notification {
                     creator_id: comment.creator_id,
                     comment_id: Some(comment.id),
                     edit_id: None,
+                    conflict_id: None,
                 };
                 insert_into(notification::table)
                     .values(&form)
@@ -203,6 +254,7 @@ impl Notification {
                 creator_id: comment.creator_id,
                 comment_id: Some(comment.id),
                 edit_id: None,
+                conflict_id: None,
             },
             context,
         )?;
@@ -220,6 +272,7 @@ impl Notification {
                 creator_id: edit.creator_id,
                 comment_id: None,
                 edit_id: Some(edit.id),
+                conflict_id: None,
             },
             context,
         )

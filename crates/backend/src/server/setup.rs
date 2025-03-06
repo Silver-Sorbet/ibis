@@ -44,12 +44,15 @@ pub async fn setup(context: &Data<IbisContext>) -> Result<(), BackendError> {
     };
     let instance = Instance::create(&form, context)?;
 
-    let person = Person::create_local(
+    let admin = Person::create_local(
         context.config.setup.admin_username.clone(),
         context.config.setup.admin_password.clone(),
         true,
         context,
     )?;
+
+    // Admin follows local instance by default
+    Instance::follow(&admin.person.clone(), &instance, false, context)?;
 
     // Create the main page which is shown by default
     let form = DbArticleForm {
@@ -63,16 +66,15 @@ pub async fn setup(context: &Data<IbisContext>) -> Result<(), BackendError> {
         instance_id: instance.id,
         local: true,
         protected: true,
-        approved: true,
     };
-    let article = Article::create(form, context)?;
+    let article = Article::create(form, admin.person.id, context)?;
     // also create an article so its included in most recently edited list
     submit_article_update(
         MAIN_PAGE_DEFAULT_TEXT.to_string(),
         "Default main page".to_string(),
         EditVersion::default(),
         &article,
-        person.person.id,
+        admin.person.id,
         context,
     )
     .await?;

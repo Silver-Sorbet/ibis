@@ -7,6 +7,9 @@ edition.workspace = true
 default = []
 ssr = []
 
+[lints]
+workspace = true
+
 [dependencies]
 serde.workspace = true
 url.workspace = true
@@ -17,7 +20,7 @@ smart-default = "0.7.1"
 
 # backend-only deps
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-diesel = { version = "2.2.6", default-features = false, features = [
+diesel = { version = "2.2.7", default-features = false, features = [
   "postgres",
   "chrono",
   "uuid",
@@ -27,7 +30,7 @@ diesel-derive-newtype = "2.1.2"
 diesel_migrations = "2.2.0"
 hex = "0.4.3"
 bcrypt.workspace = true
-config = { version = "0.15.6", features = ["toml"] }
+config = { version = "0.15.8", features = ["toml"] }
 clokwerk = "0.4.0"
 sha2.workspace = true
 diffy.workspace = true

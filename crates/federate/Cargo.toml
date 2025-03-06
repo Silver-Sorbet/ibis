@@ -3,10 +3,13 @@ name = "ibis_federate"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 ibis_database = { workspace = true, features = ["ssr"] }
 enum_delegate = "0.2.0"
-async-trait = "0.1.85"
+async-trait = "0.1.87"
 rand = "0.8.5"
 regex = "1.11.1"
 tokio.workspace = true

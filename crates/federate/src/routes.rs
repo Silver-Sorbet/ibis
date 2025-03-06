@@ -14,14 +14,16 @@ use super::{
 };
 use crate::{
     activities::{
-        accept::Accept,
         announce::AnnounceActivity,
-        create_article::CreateArticle,
-        follow::Follow,
+        article::{
+            create_article::CreateArticle,
+            remove_article::RemoveArticle,
+            undo_remove_article::UndoRemoveArticle,
+            update_local_article::UpdateLocalArticle,
+            update_remote_article::UpdateRemoteArticle,
+        },
+        following::{accept::Accept, follow::Follow, undo_follow::UndoFollow},
         reject::RejectEdit,
-        undo_follow::UndoFollow,
-        update_local_article::UpdateLocalArticle,
-        update_remote_article::UpdateRemoteArticle,
     },
     objects::{
         article::ApubArticle,
@@ -153,6 +155,8 @@ pub enum InboxActivities {
     UpdateLocalArticle(UpdateLocalArticle),
     UpdateRemoteArticle(UpdateRemoteArticle),
     RejectEdit(RejectEdit),
+    RemoveArticle(RemoveArticle),
+    UndoRemoveArticle(UndoRemoveArticle),
     AnnounceActivity(AnnounceActivity),
     AnnouncableActivities(AnnouncableActivities),
 }

@@ -1,8 +1,8 @@
 #![expect(clippy::unwrap_used)]
 
 use anyhow::Result;
+use ibis::start;
 use ibis_api_client::{ApiClient, user::RegisterUserParams};
-use ibis_backend::start;
 use ibis_database::{
     common::instance::Options,
     config::{IbisConfig, IbisConfigDatabase, IbisConfigFederation},
@@ -18,13 +18,16 @@ use std::{
         atomic::{AtomicI32, Ordering},
     },
     thread::spawn,
+    time::Duration,
 };
-use tokio::{join, sync::oneshot, task::JoinHandle};
+use tokio::{join, sync::oneshot, task::JoinHandle, time::sleep};
 
 pub struct TestData(pub IbisInstance, pub IbisInstance, pub IbisInstance);
 
+static ACTIVE: AtomicI32 = AtomicI32::new(0);
+
 impl TestData {
-    pub async fn start(article_approval: bool) -> Self {
+    pub async fn start() -> Self {
         static INIT: Once = Once::new();
         INIT.call_once(|| {
             env_logger::builder()
@@ -33,6 +36,12 @@ impl TestData {
                 //.filter_module("ibis", LevelFilter::Info)
                 .init();
         });
+
+        // Limit number of concurrent tests, otherwise it can throw errors about too many open files
+        while ACTIVE.load(Ordering::Relaxed) > 20 {
+            sleep(Duration::from_secs(1)).await;
+        }
+        ACTIVE.fetch_add(1, Ordering::Relaxed);
 
         // Run things on different ports and db paths to allow parallel tests
         static COUNTER: AtomicI32 = AtomicI32::new(0);
@@ -57,9 +66,9 @@ impl TestData {
         }
 
         let (alpha, beta, gamma) = join!(
-            IbisInstance::start(alpha_db_path, port_alpha, "alpha", article_approval),
-            IbisInstance::start(beta_db_path, port_beta, "beta", article_approval),
-            IbisInstance::start(gamma_db_path, port_gamma, "gamma", article_approval)
+            IbisInstance::start(alpha_db_path, port_alpha, "alpha"),
+            IbisInstance::start(beta_db_path, port_beta, "beta"),
+            IbisInstance::start(gamma_db_path, port_gamma, "gamma")
         );
 
         Self(alpha, beta, gamma)
@@ -69,6 +78,7 @@ impl TestData {
         for j in [alpha.stop(), beta.stop(), gamma.stop()] {
             j.join().unwrap();
         }
+        ACTIVE.fetch_sub(1, Ordering::Relaxed);
         Ok(())
     }
 }
@@ -106,7 +116,7 @@ impl IbisInstance {
         })
     }
 
-    async fn start(db_path: String, port: i32, username: &str, article_approval: bool) -> Self {
+    async fn start(db_path: String, port: i32, username: &str) -> Self {
         let connection_url = format!("postgresql://ibis:password@/ibis?host={db_path}");
 
         let hostname = format!("localhost:{port}");
@@ -121,7 +131,6 @@ impl IbisInstance {
             },
             options: Options {
                 registration_open: true,
-                article_approval,
             },
             ..Default::default()
         };
