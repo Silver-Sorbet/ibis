@@ -103,7 +103,7 @@ impl Object for ArticleWrapper {
             title: json.name,
             text: json.content,
             ap_id: json.id.into(),
-            local: false,
+            local: matches!(instance.id.0, 1),
             instance_id: instance.id,
             protected: json.protected,
             approved: true,

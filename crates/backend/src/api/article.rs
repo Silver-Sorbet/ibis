@@ -43,7 +43,7 @@ use ibis_database::{
 use ibis_federate::{
     activities::{create_article::CreateArticle, submit_article_update},
     objects::article::ArticleWrapper,
-    validate::{validate_article_title, validate_not_empty},
+    validate::{validate_article_title, validate_not_empty, validate_instance},
 };
 use url::Url;
 
@@ -56,13 +56,15 @@ pub(crate) async fn create_article(
 ) -> BackendResult<Json<ArticleView>> {
     params.title = validate_article_title(&params.title)?;
     validate_not_empty(&params.text)?;
+
+    let instance_id = validate_instance(&params.instance)?;
     
-    let instance = Instance::read_local(&context)?;
+    let local_instance = Instance::read_local(&context)?;
 
     let ap_id = Url::parse(&format!(
         "{}://{}/article/{}",
         http_protocol_str(),
-        extract_domain(&instance.ap_id.into()),
+        extract_domain(&local_instance.ap_id.into()),
         params.title
     ))?
     .into();
@@ -71,8 +73,8 @@ pub(crate) async fn create_article(
         title: params.title,
         text: String::new(),
         ap_id,
-        instance_id: instance.id,
-        local: true,
+        instance_id,
+        local: matches!(instance_id.0, 1),
         protected: false,
         approved: !context.config.options.article_approval,
     };
