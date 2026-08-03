@@ -3,3 +3,11 @@
 /.vscode
 /assets/dist
 /node_modules
+.devenv
+devenv.lock
+devenv.lock
+devenv.nix
+devenv.yaml
+.devenv.flake.nix
+devenv.lock
+devenv.lock
