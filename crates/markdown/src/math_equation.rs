@@ -31,26 +31,26 @@ impl InlineRule for MathEquationScanner {
     fn run(state: &mut InlineState) -> Option<(Node, usize)> {
         let input = &state.src[state.pos..state.pos_max];
         let math_marker = String::from(if input.starts_with("$$") { "$$" } else { "$" });
-        let SEPARATOR_LENGTH: usize = math_marker.len();
+        let math_marker_len: usize = math_marker.len();
 
         // True -> Block display
         // False -> Inline display
         let display_mode = input.starts_with(&(math_marker.clone() + "\n"))
             || input.starts_with(&(math_marker.clone() + " "));
 
-        input[SEPARATOR_LENGTH..].find(&math_marker).map(|length| {
-            let start = state.pos + SEPARATOR_LENGTH;
-            let i = start + length;
-            if start > i {
+        input[math_marker_len..].find(&math_marker).map(|length| {
+            let start = state.pos + math_marker_len;
+            let end = start + length;
+            if start > end {
                 return None;
             }
-            let content = &state.src[start..i];
+            let content = &state.src[start..end];
             let node = Node::new(MathEquation {
-                //  equation: content.to_string(),
                 equation: match math_marker.as_str() {
+                    // LaTeX syntax
                     "$$" => content.to_string(), // LaTeX
+                    // Typst syntax
                     "$" => {
-                        // Typst
                         let tylax_opt: T2LOptions = T2LOptions {
                             full_document: false,
                             document_class: "article".to_string(),
@@ -66,7 +66,7 @@ impl InlineRule for MathEquationScanner {
                 },
                 display_mode,
             });
-            Some((node, i + SEPARATOR_LENGTH + state.pos))
+            Some((node, end + math_marker_len - state.pos))
         })?
     }
 }
